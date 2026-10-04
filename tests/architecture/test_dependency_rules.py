@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -295,3 +296,97 @@ class TestArchitectureCheckerAgrees:
             assert init.exists(), f"{package} has no __init__ documenting its boundary"
             text = init.read_text(encoding="utf-8")
             assert text.lstrip().startswith('"""'), f"{package} lacks a module docstring"
+
+
+def _checker(root: Path) -> ModuleType:
+    """Load ``scripts/check_architecture.py`` with its source root pointed at `root`.
+
+    Args:
+        root: Directory to treat as the package root. ``check_file`` ignores any path
+            that is not under ``SRC_ROOT``, so redirecting it is what lets these tests
+            probe synthetic files without writing into the real source tree.
+
+    Returns:
+        The loaded module.
+
+    """
+    import importlib.util  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location(
+        "check_architecture_under_test", "scripts/check_architecture.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    # Registered before exec: a @dataclass in the module resolves annotations through
+    # sys.modules at class-creation time and fails with a confusing error if absent.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    module.SRC_ROOT = root
+    return module
+
+
+class TestCheckerCatchesEveryImportForm:
+    """A checker that misses an import form is decoration, not a control.
+
+    The checker once carried an early ``if top == module: continue``, intended to let a
+    bare ``import knowledge_assistant`` pass. The condition was true for *every*
+    single-segment module, so ``import requests`` in the config layer - the exact
+    violation this gate exists to catch - was silently skipped. Only dotted imports
+    (``from foo.bar import x``) were checked.
+
+    Phase 0 called this CI rule "the only real control" against boundary erosion, so a
+    hole in it is a hole in the architecture, not a cosmetic bug. These tests inject a
+    violation into a temporary file and assert the checker sees it.
+    """
+
+    #: A third-party module that is in no rule's allow-list.
+    _FORBIDDEN = "definitely_not_a_real_dependency"
+
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "import definitely_not_a_real_dependency",
+            "from definitely_not_a_real_dependency import thing",
+            "from definitely_not_a_real_dependency.sub import thing",
+        ],
+    )
+    def test_undeclared_third_party_import_is_rejected(
+        self, tmp_path: Path, statement: str
+    ) -> None:
+        """Both import forms must be checked; a bare ``import X`` is the one that was missed."""
+        module = _checker(tmp_path)
+        target = tmp_path / "config" / "probe.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{statement}\n", encoding="utf-8")
+        assert module.check_file(target), f"checker missed: {statement}"
+
+    def test_stdlib_import_is_allowed(self, tmp_path: Path) -> None:
+        """A genuine standard-library import must not be reported as third-party."""
+        module = _checker(tmp_path)
+        target = tmp_path / "config" / "probe.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("import shutil\nimport urllib.parse\n", encoding="utf-8")
+        assert module.check_file(target) == []
+
+    def test_bare_first_party_import_is_allowed(self, tmp_path: Path) -> None:
+        """``import knowledge_assistant`` crosses no layer boundary, so it stays legal.
+
+        This is the case the removed early-return was written for; keeping it legal is
+        what proves the fix did not simply delete the exemption.
+        """
+        module = _checker(tmp_path)
+        target = tmp_path / "config" / "probe.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("import knowledge_assistant\n", encoding="utf-8")
+        assert module.check_file(target) == []
+
+    def test_layering_violation_is_still_rejected(self, tmp_path: Path) -> None:
+        """The first-party direction rule must survive the change unchanged."""
+        module = _checker(tmp_path)
+        target = tmp_path / "domain" / "probe.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            "from knowledge_assistant.infrastructure.db import engine\n", encoding="utf-8"
+        )
+        assert module.check_file(target)

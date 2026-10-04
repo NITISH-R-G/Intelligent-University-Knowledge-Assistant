@@ -34,6 +34,14 @@ SRC_ROOT: Final[Path] = REPO_ROOT / "src" / "knowledge_assistant"
 #: Modules considered part of the standard library for this project's purposes. Anything not in
 #: this set and not explicitly allowed by a rule is a third-party dependency, which requires an
 #: explicit entry in the relevant rule.
+#:
+#: This set is maintained by hand rather than read from ``sys.stdlib_module_names``, because a
+#: checker that approves whatever the running interpreter happens to ship would quietly widen
+#: itself whenever Python adds a module. The cost of the hand-maintained list is that an entry
+#: can be missing - ``urllib`` was, which caused a genuine standard-library import to be reported
+#: as a third-party dependency. Adding a genuinely stdlib top-level module here corrects the
+#: classification and does NOT relax the rule: third-party modules still require an explicit
+#: entry in the relevant rule, and no rule was widened.
 _STDLIB: Final[frozenset[str]] = frozenset(
     {
         "abc",
@@ -62,6 +70,7 @@ _STDLIB: Final[frozenset[str]] = frozenset(
         "random",
         "re",
         "secrets",
+        "shutil",
         "signal",
         "socket",
         "ssl",
@@ -75,6 +84,7 @@ _STDLIB: Final[frozenset[str]] = frozenset(
         "types",
         "typing",
         "unicodedata",
+        "urllib",
         "uuid",
         "warnings",
         "weakref",
@@ -283,7 +293,9 @@ def check_file(path: Path) -> list[Violation]:
         top = _top_level(module)
         if top == "knowledge_assistant":
             # First-party import. A module may always import a sibling inside its own package:
-            # splitting a package into modules is not a layering boundary.
+            # splitting a package into modules is not a layering boundary. A bare
+            # `import knowledge_assistant` yields an empty `sub` and is accepted here, which
+            # is why there is no separate early return for it.
             sub = module.split(".")[1] if len(module.split(".")) > 1 else ""
             if sub and sub != package and sub not in rule.allowed_first_party:
                 violations.append(
@@ -294,9 +306,6 @@ def check_file(path: Path) -> list[Violation]:
                         f"package {package!r} may not import {sub!r}; rule: {rule.rationale}",
                     )
                 )
-            continue
-        if top == module:
-            # `import knowledge_assistant` without a subpackage.
             continue
         if top in _STDLIB:
             continue
