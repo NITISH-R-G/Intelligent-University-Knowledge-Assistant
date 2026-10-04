@@ -135,6 +135,10 @@ ignore = [
 # that library code never bypasses the structured logger; a CLI is the one place where
 # human-readable stdout is the correct output.
 "src/knowledge_assistant/interfaces/cli.py" = ["T201"]
+# The knowledge demo commands write to the developer's terminal for the same reason:
+# a demo is read by a person, and routing it through structured logs would make it
+# unreadable. Same exemption, same justification, same scope - this one entry point.
+"src/knowledge_assistant/knowledge_main.py" = ["T201"]
 # Database adapters. S608 fires on f-strings containing SQL, but it cannot tell a
 # module-level column-list constant from user input. Every query in this package binds its
 # values through psycopg's named placeholders (`%(name)s`); the only interpolated values are

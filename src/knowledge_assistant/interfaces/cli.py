@@ -21,6 +21,7 @@ import argparse
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 __all__ = ["main"]
@@ -110,6 +111,64 @@ def cmd_migrate() -> int:
     return _run([PYTHON, "-m", "alembic", "upgrade", "head"])
 
 
+def cmd_ingest(args: argparse.Namespace) -> int:
+    """Load a corpus directory into the knowledge base.
+
+    Delegates to ``knowledge_main`` by subprocess, exactly as ``serve`` and ``worker`` do. The
+    knowledge commands need the composition root, and the architecture rules forbid the
+    interface layer from importing it - which is the rule working as intended, not an
+    obstacle to route around.
+    """
+    argv = [PYTHON, "-m", "knowledge_assistant.knowledge_main", "ingest"]
+    if getattr(args, "corpus", None):
+        argv += ["--corpus", args.corpus]
+    return _run(argv)
+
+
+def cmd_ask(args: argparse.Namespace) -> int:
+    """Answer one question from retrieved evidence."""
+    argv = [PYTHON, "-m", "knowledge_assistant.knowledge_main", "ask", *args.question]
+    if getattr(args, "verbose", False):
+        argv.append("--verbose")
+    return _run(argv)
+
+
+def cmd_demo(args: argparse.Namespace) -> int:
+    """Run the fixed end-to-end demo script."""
+    del args
+    return _run([PYTHON, "-m", "knowledge_assistant.knowledge_main", "demo"])
+
+
+def cmd_eval(args: argparse.Namespace) -> int:
+    """Run the MVP retrieval evaluation."""
+    argv = [PYTHON, "-m", "knowledge_assistant.knowledge_main", "eval"]
+    if getattr(args, "path", None):
+        argv += ["--path", args.path]
+    return _run(argv)
+
+
+def _taking_args(handler: Callable[[argparse.Namespace], int]) -> Callable[[], int]:
+    """Adapt a handler that needs the parsed namespace to the zero-argument dispatcher contract.
+
+    The developer commands predate the knowledge commands and all take no arguments, so
+    ``main`` calls ``args.func()``. The knowledge commands need the namespace the parser just
+    built. Wrapping here keeps both shapes working without changing the signature of any
+    existing command.
+
+    Args:
+        handler: A handler that accepts the parsed namespace.
+
+    Returns:
+        A zero-argument callable that forwards the namespace.
+
+    """
+
+    def run() -> int:
+        return handler(parse_args())
+
+    return run
+
+
 def cmd_test() -> int:
     """Run the test suite."""
     return _run([PYTHON, "-m", "pytest"])
@@ -170,11 +229,14 @@ def cmd_dod() -> int:
     return _run([PYTHON, "scripts/definition_of_done.py"])
 
 
-def main() -> int:
-    """Parse arguments and dispatch.
+def build_parser() -> argparse.ArgumentParser:
+    """Build the ``ka`` argument parser.
+
+    Split out from :func:`main` so :func:`_taking_args` can re-read the parsed namespace in the
+    handler closure without threading the parser through every command.
 
     Returns:
-        Process exit code.
+        The configured parser.
 
     """
     parser = argparse.ArgumentParser(prog="ka", description="Knowledge Assistant developer CLI")
@@ -195,7 +257,45 @@ def main() -> int:
     ):
         sub.add_parser(name, help=help_text).set_defaults(func=handler)
 
-    args = parser.parse_args()
+    # Knowledge commands take arguments, so they are registered separately rather than by the
+    # zero-argument loop above.
+    ingest = sub.add_parser("ingest", help="Load a corpus directory into the knowledge base")
+    ingest.add_argument("--corpus", default=None)
+    ingest.set_defaults(func=_taking_args(cmd_ingest))
+    ask = sub.add_parser("ask", help="Answer one question from retrieved evidence")
+    ask.add_argument("question", nargs="+")
+    ask.add_argument("--verbose", action="store_true")
+    ask.set_defaults(func=_taking_args(cmd_ask))
+    sub.add_parser("demo", help="Run the fixed end-to-end demo").set_defaults(
+        func=_taking_args(cmd_demo)
+    )
+    evaluate = sub.add_parser("eval", help="Run the MVP retrieval evaluation")
+    evaluate.add_argument("--path", default=None)
+    evaluate.set_defaults(func=_taking_args(cmd_eval))
+    return parser
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse ``ka`` arguments.
+
+    Args:
+        argv: Argument vector, or ``None`` to read ``sys.argv``.
+
+    Returns:
+        The parsed namespace.
+
+    """
+    return build_parser().parse_args(argv)
+
+
+def main() -> int:
+    """Parse arguments and dispatch.
+
+    Returns:
+        Process exit code.
+
+    """
+    args = build_parser().parse_args()
     return int(args.func())
 
 

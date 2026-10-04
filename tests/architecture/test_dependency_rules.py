@@ -226,34 +226,75 @@ class TestRuleWiringIsTheOnlyPlaceThatKnowsEverything:
 
 
 class TestNoSpeculativeSurface:
-    """Phase 1 must contain no RAG, ingestion or LLM code."""
+    """Phase 2 builds retrieval, ingestion and prompt construction; it still builds nothing else.
+
+    Phase 1 wrote this guard with ``embedding``, ``chunk``, ``prompt``, ``ingest`` and
+    ``citation`` forbidden, because at that point none of it existed and the cheapest moment to
+    forbid a concept is before it is written. The retrieval-augmented slice then implemented
+    exactly those five, so that list is split in two below: :attr:`FORBIDDEN` keeps guarding
+    what the domain must *not* grow, and :attr:`DEFERRED` names the modules that were
+    explicitly deferred rather than quietly skipped.
+
+    Deleting the test instead of re-scoping it would have left the boundary unwatched, which is
+    the one outcome the test existed to prevent.
+    """
 
     FORBIDDEN = (
-        "embedding",
-        "chunk",
-        "vector_store",
         "rerank",
         "llm",
-        "prompt",
         "openai",
         "anthropic",
         "langchain",
         "llama_index",
-        "ingest",
         "pdf",
-        "citation",
+        "graphrag",
+        "pinecone",
+        "chromadb",
+        "weaviate",
     )
 
-    def test_no_forbidden_module_names(self) -> None:
+    #: Absent by decision in Phase 2 and therefore still asserted. A reranking or hosted-LLM
+    #: module appearing here means a sprint boundary was crossed without a design decision.
+    DEFERRED = ("rerank", "graphrag", "llm")
+
+    def test_no_deferred_module_names(self) -> None:
         """The absence is asserted, not assumed. Phase creep is easiest to prevent at the
         moment it is first written.
         """
         offenders = [
             p.as_posix()
             for p in _module_files()
+            if any(word in p.name.lower() for word in self.DEFERRED)
+        ]
+        assert not offenders, offenders
+
+    def test_no_forbidden_module_names(self) -> None:
+        """Vendor SDKs and hosted-vector-store clients stay out, now that local retrieval exists."""
+        offenders = [
+            p.as_posix()
+            for p in _module_files()
             if any(word in p.name.lower() for word in self.FORBIDDEN)
         ]
         assert not offenders, offenders
+
+    def test_retrieval_modules_exist_where_the_architecture_expects_them(self) -> None:
+        """The positive counterpart of the two tests above.
+
+        Phase 1 could assert that retrieval did not exist. Phase 2 must assert that it exists
+        *and* that it landed in the right layers, so the guard cannot be satisfied by deleting
+        the feature instead of by building it: the value objects are in ``domain``, the use
+        cases in ``application``, and everything that opens a database or embeds text in
+        ``infrastructure``. The per-layer import rules are already enforced by the tests above
+        and by ``scripts/check_architecture.py``; this only pins the placement.
+        """
+        expected = {
+            "domain": ("knowledge.py",),
+            "application": ("ingest.py", "retrieval.py", "answer.py"),
+            "infrastructure": ("embeddings.py", "db/knowledge.py", "db/direct.py"),
+        }
+        for layer, names in expected.items():
+            for name in names:
+                assert (SRC / layer / name).exists(), f"{layer} is missing {name}"
 
     def test_no_forbidden_third_party_imports(self) -> None:
         banned = {"openai", "anthropic", "langchain", "llama_index", "chromadb", "pinecone"}

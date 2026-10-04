@@ -12,26 +12,33 @@ reader most needs to see. The cost is a slightly longer constructor; the benefit
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import Any, cast
 
 from fastapi import FastAPI
 
+from knowledge_assistant.application.answer import AnswerQuestion, ExtractiveResponseGenerator
 from knowledge_assistant.application.health import HealthService
 from knowledge_assistant.application.idempotency import IdempotentExecutor
+from knowledge_assistant.application.ingest import IngestCorpus
 from knowledge_assistant.application.jobs import ExecuteJobOnce, SubmitJob
 from knowledge_assistant.application.ports import HealthProbePort
+from knowledge_assistant.application.retrieval import BuildContext, BuildPrompt, RetrieveKnowledge
 from knowledge_assistant.config.settings import Settings, load_settings
 from knowledge_assistant.domain.clock import Clock, SystemClock
 from knowledge_assistant.domain.health import ProbeCriticality, ProbeStatus
+from knowledge_assistant.infrastructure.db.direct import DirectDatabase, build_direct_database
 from knowledge_assistant.infrastructure.db.engine import Database, build_pool
 from knowledge_assistant.infrastructure.db.idempotency import PgIdempotencyStore
 from knowledge_assistant.infrastructure.db.jobs import PgJobRepository
+from knowledge_assistant.infrastructure.db.knowledge import PgKnowledgeStore
 from knowledge_assistant.infrastructure.db.probes import (
     DatabaseProbe,
     JobQueueProbe,
     StaticProbe,
 )
+from knowledge_assistant.infrastructure.embeddings import HashingEmbeddingProvider
 from knowledge_assistant.interfaces.http.app import create_app
 from knowledge_assistant.lifespan import make_lifespan
 from knowledge_assistant.observability.logging import configure_logging, get_logger
@@ -39,7 +46,14 @@ from knowledge_assistant.observability.metrics import Metrics, build_meter
 from knowledge_assistant.workers.handlers import build_registry
 from knowledge_assistant.workers.runner import WorkerRunner
 
-__all__ = ["ApiContainer", "WorkerContainer", "build_api_container", "build_worker_container"]
+__all__ = [
+    "ApiContainer",
+    "WorkerContainer",
+    "KnowledgeContainer",
+    "build_api_container",
+    "build_worker_container",
+    "build_knowledge_container",
+]
 
 
 def _build_metrics(settings: Settings) -> Metrics:
@@ -160,6 +174,88 @@ class WorkerContainer:
     async def aclose(self) -> None:
         """Close owned resources."""
         await self.database.close()
+
+
+@dataclass(slots=True)
+class KnowledgeContainer:
+    """Everything the retrieval-augmented generation slice owns.
+
+    Separate from :class:`ApiContainer` because the slice has a different lifecycle: the API
+    starts and stops often, while ingestion and the demo CLI run as one-shot commands. Folding
+    it into the API container would make an import of ``corpus/`` on every server boot.
+
+    Attributes:
+        settings: Validated settings.
+        database: Open database handle.
+        store: Knowledge store, bound to the embedding provider.
+        embedder: Embedding provider in use.
+        ingest: Ingestion use case.
+        retriever: Retrieval use case.
+        answer: End-to-end answer use case.
+        generator: Response generator backend.
+
+    """
+
+    settings: Settings
+    database: Any
+    store: PgKnowledgeStore
+    embedder: HashingEmbeddingProvider
+    ingest: IngestCorpus
+    retriever: RetrieveKnowledge
+    answer: AnswerQuestion
+    generator: ExtractiveResponseGenerator
+
+    async def aclose(self) -> None:
+        """Close owned resources."""
+        await self.database.close()
+
+
+async def build_knowledge_container(
+    settings: Settings | None = None, *, top_k: int | None = None
+) -> KnowledgeContainer:
+    """Wire the retrieval-augmented generation slice with its database open.
+
+    Every retrieval-augmented system needs retrieval and generation wired to the *same* embedder,
+    or silently degrades. Building both here is what guarantees it.
+
+    Args:
+        settings: Validated settings, or loaded from the environment.
+        top_k: Retrieval depth override.
+
+    Returns:
+        A container with the database already open.
+
+    """
+    resolved_settings = settings or load_settings()
+    # The pool cannot open on Windows; a single direct connection is the documented fallback.
+    # Selected by platform rather than by retry, so the failure is immediate instead of a
+    # thirty-second timeout on every invocation. See infrastructure/db/direct.py.
+    if sys.platform == "win32":
+        database: Database | DirectDatabase = build_direct_database(
+            resolved_settings.database_url.get_secret_value()
+        )
+    else:
+        database = _build_database(resolved_settings)
+    await database.open()
+
+    embedder = HashingEmbeddingProvider()
+    store = PgKnowledgeStore(database).with_provider(embedder.name)
+    generator = ExtractiveResponseGenerator()
+    retriever = (
+        RetrieveKnowledge(store, store, embedder, top_k=top_k)
+        if top_k is not None
+        else RetrieveKnowledge(store, store, embedder)
+    )
+    return KnowledgeContainer(
+        settings=resolved_settings,
+        database=database,
+        store=store,
+        embedder=embedder,
+        ingest=IngestCorpus(store, embedder),
+        retriever=retriever,
+        answer=AnswerQuestion(retriever, BuildContext(), BuildPrompt(), generator),
+        generator=generator,
+    )
 
 
 def build_api_container(

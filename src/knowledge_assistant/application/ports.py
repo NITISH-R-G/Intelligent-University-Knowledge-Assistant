@@ -16,6 +16,21 @@ The other eight (``LLMProvider``, ``EmbeddingProvider``, ``Reranker``, ``VectorS
 deleted: each returns in the phase that introduces its first alternative implementation.
 Declaring a port for a capability with one implementation and no test need is an abstraction
 that costs a file and an indirection and buys nothing.
+
+**Four of them have now returned**, because the retrieval-augmented generation vertical slice
+gave each its first genuine alternative:
+
+* :class:`EmbeddingProviderPort` - the production provider is a deterministic local vectorizer
+  and the test double is a fixed vocabulary, so retrieval can be tested without one.
+* :class:`VectorStorePort` / :class:`LexicalSearchPort` - split deliberately. Retrieval
+  fuses two independent rankings, and a single adapter answering both would make the fusion
+  impossible to test or to swap one side of.
+* :class:`ResponseGeneratorPort` - the MVP ships a deterministic extractive generator and a
+  stub generator for tests. A local LLM slots in behind this port without touching retrieval.
+
+``Reranker`` remains deferred: the MVP's ranking is a score combination inside the retrieval
+use case, and a port with one implementation and one caller would be the ceremony this module's
+docstring warns against.
 """
 
 from __future__ import annotations
@@ -26,11 +41,16 @@ from typing import Any, Protocol, runtime_checkable
 from knowledge_assistant.domain.health import ProbeCriticality, ProbeResult
 from knowledge_assistant.domain.idempotency import IdempotencyRecord, IdempotencyScope
 from knowledge_assistant.domain.jobs import Job, JobClaim
+from knowledge_assistant.domain.knowledge import Chunk, RetrievedChunk
 
 __all__ = [
     "HealthProbePort",
     "JobRepositoryPort",
     "IdempotencyStorePort",
+    "EmbeddingProviderPort",
+    "VectorStorePort",
+    "LexicalSearchPort",
+    "ResponseGeneratorPort",
     "JobContext",
     "JobHandlerFn",
     "JobHandlerRegistry",
@@ -274,3 +294,71 @@ def handler_contract() -> Sequence[str]:
         "return a JSON-serialisable mapping to succeed",
         "handlers receive no clock, no database and no configuration",
     )
+
+
+@runtime_checkable
+class EmbeddingProviderPort(Protocol):
+    """Turns text into fixed-width vectors.
+
+    Exists so retrieval does not know *how* text becomes a vector. The production provider is
+    deterministic and local; replacing it with a sentence-transformer or an API-backed model is
+    a change to one adapter, not to ingestion, retrieval or storage.
+    """
+
+    @property
+    def dimensions(self) -> int:
+        """Return the vector width this provider emits."""
+
+    @property
+    def name(self) -> str:
+        """Return a stable identifier recorded on every stored vector."""
+
+    def embed(self, text: str) -> tuple[float, ...]:
+        """Return the vector for a single piece of text."""
+
+    def embed_many(self, texts: Sequence[str]) -> list[tuple[float, ...]]:
+        """Return vectors for a batch, in the order supplied."""
+
+
+@runtime_checkable
+class VectorStorePort(Protocol):
+    """Dense-vector search over stored chunks."""
+
+    async def upsert_chunks(
+        self, *, document_id: str, chunks: Sequence[Chunk], vectors: Sequence[Sequence[float]]
+    ) -> int:
+        """Replace every chunk of ``document_id`` with the supplied chunks and vectors.
+
+        Replace rather than append so re-ingesting an edited document cannot leave orphaned
+        chunks behind for retrieval to cite.
+        """
+
+    async def search_vector(
+        self, *, query_vector: Sequence[float], limit: int
+    ) -> Sequence[RetrievedChunk]:
+        """Return the ``limit`` chunks nearest to ``query_vector``, best first."""
+
+
+@runtime_checkable
+class LexicalSearchPort(Protocol):
+    """Full-text search over stored chunks."""
+
+    async def search_lexical(self, *, query: str, limit: int) -> Sequence[RetrievedChunk]:
+        """Return the ``limit`` chunks best matching ``query``, best first."""
+
+
+@runtime_checkable
+class ResponseGeneratorPort(Protocol):
+    """Turns retrieved evidence and a question into a grounded answer.
+
+    The seam that lets a local LLM replace the MVP's extractive generator without touching
+    retrieval, prompting or citation. Implementations receive the already-built context, so
+    none of them can invent evidence that retrieval did not supply.
+    """
+
+    @property
+    def name(self) -> str:
+        """Return a stable identifier recorded with each answer."""
+
+    async def generate(self, *, question: str, context_chunks: Sequence[RetrievedChunk]) -> str:
+        """Return an answer grounded in ``context_chunks``."""
