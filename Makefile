@@ -193,6 +193,27 @@ openapi: ## Verify the committed OpenAPI document matches the application
 env-check: ## Verify .env.example describes the stack docker-compose.yml builds
 	$(PYTHON) scripts/check_env_consistency.py
 
+
+# ==============================================================================
+# BENCHMARKS
+#
+# These run the real harness in benchmarks/. They are not a substitute for load
+# testing: this measures one process synchronously and is explicitly not a load
+# generator (Phase 0 OPS-015 assigns that to nightly k6 against a real service).
+# ==============================================================================
+
+.PHONY: benchmark
+benchmark: ## Run the benchmark suite and compare against the recorded baseline
+	$(PYTHON) -m benchmarks.run
+
+.PHONY: benchmark-save
+benchmark-save: ## Run the suite and record the result as the new baseline
+	$(PYTHON) -m benchmarks.run --save-baseline
+
+.PHONY: benchmark-clean
+benchmark-clean: ## Remove recorded benchmark output (never committed; regenerated on demand)
+	rm -rf .benchmarks
+
 .PHONY: openapi-write
 openapi-write: ## Rewrite the OpenAPI document (an intentional API contract change)
 	$(PYTHON) scripts/openapi_artifact.py --write

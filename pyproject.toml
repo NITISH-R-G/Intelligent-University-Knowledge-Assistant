@@ -67,8 +67,6 @@ where = ["src"]
 line-length = 100
 # Must match `requires-python`. See the note there.
 target-version = "py312"
-# `benchmarks` is listed ahead of the benchmark framework landing. Ruff tolerates a missing
-# search path; mypy (below) does not, so it is omitted from `[tool.mypy] files` until then.
 src = ["src", "tests", "scripts", "benchmarks"]
 
 [tool.ruff.lint]
@@ -122,6 +120,11 @@ ignore = [
   "TID252", "PLR2004",
 ]
 "benchmarks/**" = ["S101", "T201"]
+# The benchmark framework shells out to `git` to record the commit SHA and dirty flag that
+# every result carries. S603/S607 flag a command taken from a variable or resolved through
+# PATH; here the argument list is a literal and the only variable is the resolved working
+# directory, so neither finding applies. This mirrors the identical exemption scripts/ has.
+"benchmarks/framework/environment.py" = ["S603", "S607"]
 "scripts/**" = ["S603", "S607", "T201", "ANN"]
 # The test doubles implement the same Protocols as the production adapters, so they must
 # accept every parameter the port declares - `result`, `now`, `*args`, `**kwargs` - even
@@ -161,12 +164,11 @@ mypy_path = "src"
 # resolves as both `application.ports` and `knowledge_assistant.application.ports`, and
 # mypy aborts before type-checking anything.
 explicit_package_bases = true
-# NOTE: `benchmarks` is deliberately absent. It is a forward reference to the Phase 1
-# "benchmark foundation" deliverable, which does not exist yet; mypy treats an unresolvable
-# path as a hard error rather than skipping it, so listing it made the type-checker gate
-# unrunnable. Re-add it in the same commit that creates `benchmarks/`, otherwise benchmark
-# code will ship unchecked by mypy.
-files = ["src", "scripts"]
+# `benchmarks` is included: the framework is shipped code with no test-suite coverage of its
+# own contracts beyond tests/unit/test_benchmark_framework.py, so it must be type-checked
+# like everything else. It was a forward reference while the directory did not exist, and
+# mypy treats an unresolvable path as a hard error rather than skipping it.
+files = ["src", "scripts", "benchmarks"]
 strict = true
 warn_unreachable = true
 show_error_codes = true
