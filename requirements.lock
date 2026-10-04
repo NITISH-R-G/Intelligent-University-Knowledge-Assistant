@@ -1,0 +1,115 @@
+# ==============================================================================
+# requirements.lock - the exact, verified dependency set
+#
+# WHAT THIS IS
+#
+# pyproject.toml states ALLOWED RANGES ("fastapi>=0.115,<1.0"). That is the right
+# thing for a library to declare and the wrong thing for an application to build,
+# because a range resolves to a different set of packages every week. This file
+# records what this project is actually developed and tested against: one exact,
+# verified set of 47 distributions.
+#
+# It is the artefact referred to in pyproject.toml ("The lockfile
+# (requirements.lock) pins exact versions for reproducible builds").
+#
+# HOW IT WAS PRODUCED
+#
+#     python -m pip freeze
+#
+# run against a virtualenv in which the entire quality-gate suite passes:
+# 361 passed / 3 skipped, ruff clean, ruff format clean, mypy strict clean,
+# architecture rules clean. Every version below was therefore observed working
+# together, not resolved in the abstract. This file is a record of a verified
+# environment, not a prediction of one.
+#
+# Recorded on: 2026-10-04
+# Interpreter:  CPython 3.14.3
+# Platform:    Windows, x86_64
+#
+# Regenerating it is an intentional act, not a side effect:
+#
+#     python -m pip install -e ".[dev]"
+#     python -m pytest            # the full suite must pass first
+#     python -m pip freeze > requirements.lock
+#
+# If the suite does not pass, the environment is not verified and its versions do
+# not belong in this file.
+#
+# WHAT IT GUARANTEES, AND WHAT IT DOES NOT
+#
+# GUARANTEES: the same package versions are used on every machine and in CI, so a
+#   test failure cannot be a version difference in disguise.
+#
+# DOES NOT GUARANTEE: byte-for-byte artefact integrity. There are no hashes here,
+#   so pip verifies nothing about the downloaded files. A supply-chain compromise
+#   of an index or a release would not be detected by this file. Adding `--hash`
+#   pins would close that gap, and is a reasonable hardening step once CI is
+#   standing up and there is a real hash set to maintain against.
+#
+# DOES NOT CONTAIN: the project itself. `knowledge-assistant` is installed from
+#   source with `pip install -e ".[dev]"`; it is not a third-party distribution and
+#   does not belong in this file.
+#
+# COST: zero. Every entry below is a public package from PyPI. No private index, no
+#   paid or metered registry, no credential-bearing URL. No model provider, no
+#   hosted vector database, no paid observability backend is present or reachable
+#   through this dependency set.
+#
+# NOTE ON transitive dependencies: the file pins the whole resolved graph, not just
+# the direct dependencies in pyproject.toml. That is the point of a lock. Entries
+# such as certifi, idna and typing_extensions are required by something above them
+# and are listed because removing them would break the install.
+#
+# One naming note: `SQLAlchemy` is present because alembic requires it, and
+# alembic/env.py imports it directly. It is a transitive dependency today and not
+# declared as a direct one - worth correcting in pyproject.toml for honesty about
+# what the code imports. Noted rather than silently changed here.
+# ==============================================================================
+
+alembic==1.20.0
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+ast_serialize==0.12.1
+certifi==2026.7.22
+click==8.5.0
+colorama==0.4.6
+fastapi==0.142.2
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+hypothesis==6.168.3
+idna==3.20
+iniconfig==2.3.0
+librt==0.16.0
+Mako==1.4.3
+MarkupSafe==3.0.4
+mypy==2.4.0
+mypy_extensions==1.1.0
+opentelemetry-api==1.45.0
+opentelemetry-exporter-prometheus==0.66b0
+opentelemetry-sdk==1.45.0
+opentelemetry-semantic-conventions==0.66b0
+packaging==26.3
+pathspec==1.1.1
+pluggy==1.6.0
+prometheus_client==0.26.0
+psycopg==3.3.6
+psycopg-binary==3.3.6
+psycopg-pool==3.3.3
+pydantic==2.13.5
+pydantic-settings==2.15.0
+pydantic_core==2.46.5
+Pygments==2.21.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+python-dotenv==1.2.4
+ruff==0.16.10
+sortedcontainers==2.4.0
+SQLAlchemy==2.1.3
+starlette==1.7.0
+structlog==26.1.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+tzdata==2026.5
+uvicorn==0.54.0

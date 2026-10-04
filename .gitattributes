@@ -1,0 +1,58 @@
+# ==============================================================================
+# .gitattributes - deterministic line endings across platforms
+#
+# WHY THIS FILE EXISTS
+#
+# Git's default behaviour depends on each contributor's local `core.autocrlf`
+# setting. On this developer's machine it is `true`, which means Git rewrites LF
+# to CRLF in the working copy on checkout. The repository stores LF either way,
+# so the committed content is portable - but the FILES ON DISK are not, and some
+# of them are executables by another interpreter.
+#
+# The concrete failure this prevents: a Makefile checked out with CRLF endings
+# has every recipe line terminated with a carriage return. `make` hands that line
+# to the shell verbatim, so the shell looks for a command called `pytest\r`,
+# reports "command not found", and the target fails in a way that has nothing to
+# do with the code. The same applies to any shell script in the repository.
+#
+# That failure is worst exactly where it hurts most: it appears on a new
+# contributor's machine, on Windows, at the first `make test` - which is the first
+# command the README tells them to run.
+#
+# `.gitattributes` fixes it in the repository rather than in each person's global
+# Git configuration, which is the only approach that actually reaches everyone.
+#
+# WHAT IT DOES NOT DO
+#
+# It does not normalise the files already committed; they are already stored with
+# LF in Git, which was verified. This file only governs future checkouts.
+# ==============================================================================
+
+# Normalise line endings to LF in the repository, and check them out as LF,
+# regardless of any local core.autocrlf setting.
+* text=auto eol=lf
+
+# Files whose interpreter is line-ending-sensitive. Called out explicitly so the
+# reason survives: these break at runtime, not at commit time, which is the kind
+# of bug that gets misdiagnosed as something else entirely.
+Makefile        text eol=lf
+*.sh            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+
+# Windows-native development does exist in this project (the developer is on
+# Windows), but nothing here compiles a Windows binary or ships a Windows
+# launcher, so there is nothing to exempt. If a .bat or .cmd file is ever added,
+# give it `text eol=crlf` in this file rather than relying on local settings.
+
+# Binary assets must never be line-ending translated. Declared up front so a
+# future image or fixture is never silently corrupted by a contributor's config.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.pdf           binary
+*.zip           binary
+*.gz            binary
+*.whl           binary

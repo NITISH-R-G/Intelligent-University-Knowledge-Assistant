@@ -1,0 +1,109 @@
+# ==============================================================================
+# docker-compose.yml - local development infrastructure
+#
+# WHAT THIS FILE IS FOR
+#
+# Phase 0 selected a modular monolith over PostgreSQL: one database holding
+# business data, full-text search indexes, the job queue and (from Phase 2) the
+# vector index. Reproducing that locally needs exactly one thing - that database.
+# This file provides it and nothing else.
+#
+# WHAT THIS FILE DELIBERATELY DOES NOT CONTAIN
+#
+# No Prometheus, Grafana, Loki, Tempo, Redis, Kafka or Elasticsearch. Phase 0
+# rejected all of those for the runtime topology, and Phase 1 implements no RAG
+# behaviour that would justify them. Adding an observability stack that collects
+# nothing but process-start events would be the kind of infrastructure that
+# looks enterprise-grade and costs attention forever. The application already
+# exposes metrics on KA_METRICS_PORT; a scraper is a later milestone with a real
+# question behind it.
+#
+# No `api` or `worker` service. Neither has a container image yet - building one
+# is a deployment deliverable, not a development-environment one, and declaring
+# a service with no image would produce a file that reads as complete while
+# starting nothing. Both processes run on the host via `make serve` and
+# `make worker`, which is also where they are edited and reloaded.
+#
+# COST
+#
+# $0. PostgreSQL and pgvector are open source and run locally. Nothing here
+# contacts a hosted service, and no image requires a licence or an account.
+#
+# PINNING
+#
+# The tag is pinned rather than `latest`, because `latest` silently changes the
+# PostgreSQL major version under a running database, which is exactly the class
+# of change that should require a commit and a migration review.
+#
+#   pgvector/pgvector:0.8.0-pg16  -  PostgreSQL 16 + pgvector 0.8.0
+#
+# PostgreSQL 16 is the version named in Phase 0 (docs/phase0/
+# 08-recommended-architecture.md and 09-technology-evaluation.md); it was not
+# chosen here. The pgvector image is the project's own official distribution, and
+# pinning it is what guarantees `CREATE EXTENSION vector` in migration 0001
+# succeeds instead of failing at container start.
+#
+# Tag reviewed 2026-10-04 against the official image listing on Docker Hub
+# (https://hub.docker.com/r/pgvector/pgvector/tags). Bumping pgvector is a
+# deliberate change: check that listing, edit this one line, and note it.
+# ==============================================================================
+
+name: knowledge-assistant
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+
+    environment:
+      # Consumed by the container's own entrypoint to create the role, database
+      # and password on first start of an empty volume. Defaults match
+      # .env.example so `docker compose up` works with no .env at all; a .env
+      # file overrides them.
+      POSTGRES_USER: ${POSTGRES_USER:-ka}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ka}
+      POSTGRES_DB: ${POSTGRES_DB:-ka}
+
+    ports:
+      # Bound to the loopback interface only, not to every network interface.
+      # A development database has no authentication strategy beyond a
+      # well-known password, so publishing it on all interfaces would expose it
+      # to every network the developer machine is attached to - coffee-shop
+      # Wi-Fi included. This is the same reasoning that makes KA_METRICS_HOST
+      # default to loopback.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+      # pg_isready reports whether the server is accepting connections, which is
+      # the actual question `make up` needs answered before migrations run.
+      #
+      # It is deliberately not `pg_isready -q` against a bare server: passing the
+      # role and database makes this also assert that the initialisation
+      # triggered by POSTGRES_* actually completed. A container that is up but
+      # still initialising would otherwise be declared healthy and then fail the
+      # first migration with a confusing "database does not exist".
+      #
+      # -h 127.0.0.1 forces a TCP round-trip instead of the unix socket, so a
+      # server that is listening only on the socket would not pass.
+      test:
+        - CMD-SHELL
+        - pg_isready -h 127.0.0.1 -U "${POSTGRES_USER:-ka}" -d "${POSTGRES_DB:-ka}"
+      # start_period covers first-boot initialisation, during which failures are
+      # not counted. Without it a slow first start would exhaust `retries` and
+      # mark a perfectly healthy database unhealthy.
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+    # Named volume rather than a bind mount: it is owned by the image's
+    # postgres user with container-correct permissions. A bind mount uses the
+    # host's UID mapping and reliably produces permission errors on macOS and
+    # Windows. Data survives `docker compose down` and is removed only by the
+    # explicit `docker compose down -v` that `make down` runs.
