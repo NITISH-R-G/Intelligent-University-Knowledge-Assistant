@@ -92,8 +92,8 @@
     }
   },
   "info": {
-    "description": "This build exposes only foundation endpoints. Business functionality is deliberately absent: see docs/03-architecture/REPOSITORY.md.",
-    "summary": "Phase 1 engineering foundation. No business endpoints are implemented yet.",
+    "description": "Foundation endpoints plus POST /api/v1/knowledge/query, which answers from documents retrieved out of the local corpus and cites the passages it used. A question the corpus does not cover is refused rather than answered.",
+    "summary": "University knowledge assistant over an in-house retrieval pipeline.",
     "title": "Intelligent University Knowledge Assistant",
     "version": "0.1.0"
   },

@@ -310,7 +310,68 @@ def build_parser() -> Any:
     evaluate = sub.add_parser("eval", help="Run the MVP retrieval evaluation")
     evaluate.add_argument("--path", default=None, help="Evaluation set JSON file")
     evaluate.set_defaults(func=cmd_eval)
+    serve = sub.add_parser("serve", help="Serve POST /api/v1/knowledge/query over HTTP")
+    serve.add_argument("--host", default=None, help="Bind address; defaults to KA_HOST")
+    serve.add_argument("--port", type=int, default=None, help="Port; defaults to KA_PORT")
+    serve.set_defaults(func=cmd_serve)
     return parser
+
+
+def cmd_serve(args: Any) -> int:
+    """Serve the knowledge query endpoint.
+
+    Runs the real HTTP surface rather than describing it: the same application object the CLI
+    uses is handed to uvicorn, so the ``curl`` in the README exercises the shipped route.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        Process exit code.
+
+    """
+    import uvicorn  # noqa: PLC0415
+
+    from knowledge_assistant.config.settings import load_settings  # noqa: PLC0415
+    from knowledge_assistant.container import build_knowledge_app  # noqa: PLC0415
+
+    settings = load_settings()
+    host = getattr(args, "host", None) or settings.host
+    port = getattr(args, "port", None) or settings.port
+
+    # The database connection is opened by the application's startup hook rather than here, so
+    # it is bound to the loop uvicorn will actually serve on.
+    app = build_knowledge_app(settings)
+
+    print(f"Knowledge API on http://{host}:{port}/api/v1/knowledge/query")  # noqa: T201
+    if settings.require_authentication:
+        # The Phase 0 boundary fails closed for every path outside PUBLIC_PATHS, and the query
+        # endpoint is deliberately not on that list: it is unauthenticated only because there is
+        # no authentication implementation yet, not because it is safe to expose. Saying so at
+        # startup turns a confusing 403 into the one line that fixes it.
+        print(  # noqa: T201
+            "WARNING: KA_REQUIRE_AUTHENTICATION is true, so every query returns 403. "
+            "For a local demo set KA_REQUIRE_AUTHENTICATION=false. This is refused by "
+            "configuration validation in staging and production."
+        )
+    # ``loop="none"`` plus awaiting ``serve()`` inside a loop we choose ourselves, rather than
+    # ``uvicorn.run``. uvicorn's own runner installs a Proactor loop on Windows regardless of the
+    # event-loop policy, and psycopg's async implementation refuses that loop outright - the same
+    # limitation documented in infrastructure/db/direct.py. Owning the loop is the only way to
+    # serve this API on Windows; on every other platform it is plain ``asyncio.run``.
+    server = uvicorn.Server(
+        uvicorn.Config(app, host=host, port=port, log_config=None, access_log=False, loop="none")
+    )
+    if sys.platform == "win32":
+        import selectors  # noqa: PLC0415
+
+        asyncio.run(
+            server.serve(),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
+    else:
+        asyncio.run(server.serve())
+    return 0
 
 
 def _run_coroutine(coro: Any) -> int:

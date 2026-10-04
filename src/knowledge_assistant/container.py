@@ -258,6 +258,116 @@ async def build_knowledge_container(
     )
 
 
+class _DeferredAnswers:
+    """Answers questions using a container opened by the application's startup hook.
+
+    The database connection must be created *inside* the event loop that will use it. Opening it
+    before ``uvicorn.run`` binds it to whichever loop happened to be running at that moment, and
+    the first query then fails on a socket attached to a different loop. Deferring the open to
+    ``startup`` is therefore a correctness requirement, not a convenience.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        """Store the settings the container will be built from.
+
+        Args:
+            settings: Validated settings.
+
+        """
+        self._settings = settings
+        self._container: KnowledgeContainer | None = None
+
+    async def open(self) -> None:
+        """Open the knowledge container on the serving event loop."""
+        self._container = await build_knowledge_container(self._settings)
+
+    async def close(self) -> None:
+        """Close the container if it was opened."""
+        if self._container is not None:
+            await self._container.aclose()
+            self._container = None
+
+    async def answer(self, question: str) -> Any:
+        """Answer one question.
+
+        Args:
+            question: The user's question.
+
+        Returns:
+            The answer and its sources.
+
+        Raises:
+            RuntimeError: If called before the startup hook has run.
+
+        """
+        if self._container is None:
+            msg = "knowledge container used before startup"
+            raise RuntimeError(msg)
+        return await self._container.answer.answer(question)
+
+
+def build_knowledge_app(
+    settings: Settings | None = None,
+) -> FastAPI:
+    """Wire the HTTP surface for the knowledge assistant.
+
+    Kept separate from :func:`build_api_container` rather than folded into it. The job API and the
+    knowledge API have different failure modes: a job submission still works while the knowledge
+    base is empty, but a query cannot. Sharing one container would make the health of one
+    determine the availability of the other, and the composition root is the only place allowed
+    to know that both exist.
+
+    Args:
+        settings: Validated settings, or loaded from the environment.
+
+    Returns:
+        An application serving ``POST /api/v1/knowledge/query``.
+
+    """
+    resolved_settings = settings or load_settings()
+    answers = _DeferredAnswers(resolved_settings)
+    app = create_app(
+        health=HealthService(
+            (),
+            clock=SystemClock(),
+            timeout_seconds=resolved_settings.health_probe_timeout_seconds,
+        ),
+        service_name=resolved_settings.service_name,
+        settings_public=resolved_settings.public_summary(),
+        clock=SystemClock(),
+        max_body_bytes=resolved_settings.max_request_body_bytes,
+        knowledge=answers,
+        require_authentication=resolved_settings.require_authentication,
+    )
+
+    @app.on_event("startup")
+    async def _open() -> None:
+        """Open the database on the serving loop and announce readiness.
+
+        Returns:
+            Nothing.
+
+        """
+        await answers.open()
+        get_logger("container").info(
+            "knowledge.api.starting",
+            host=resolved_settings.host,
+            port=resolved_settings.port,
+        )
+
+    @app.on_event("shutdown")
+    async def _close() -> None:
+        """Close the database this process opened.
+
+        Returns:
+            Nothing.
+
+        """
+        await answers.close()
+
+    return app
+
+
 def build_api_container(
     settings: Settings | None = None,
     *,
@@ -312,6 +422,7 @@ def build_api_container(
         clock=resolved_clock,
         max_body_bytes=resolved_settings.max_request_body_bytes,
         metrics=metrics,
+        require_authentication=resolved_settings.require_authentication,
     )
     app.router.lifespan_context = cast("Any", make_lifespan(database))
     logger.info(

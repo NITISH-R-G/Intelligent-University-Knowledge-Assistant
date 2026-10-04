@@ -147,6 +147,16 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return _run(argv)
 
 
+def cmd_serve_knowledge(args: argparse.Namespace) -> int:
+    """Serve ``POST /api/v1/knowledge/query``."""
+    argv = [PYTHON, "-m", "knowledge_assistant.knowledge_main", "serve"]
+    if getattr(args, "host", None):
+        argv += ["--host", args.host]
+    if getattr(args, "port", None):
+        argv += ["--port", str(args.port)]
+    return _run(argv)
+
+
 def _taking_args(handler: Callable[[argparse.Namespace], int]) -> Callable[[], int]:
     """Adapt a handler that needs the parsed namespace to the zero-argument dispatcher contract.
 
@@ -272,6 +282,10 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate = sub.add_parser("eval", help="Run the MVP retrieval evaluation")
     evaluate.add_argument("--path", default=None)
     evaluate.set_defaults(func=_taking_args(cmd_eval))
+    serve_knowledge = sub.add_parser("serve-knowledge", help="Serve the knowledge query API")
+    serve_knowledge.add_argument("--host", default=None)
+    serve_knowledge.add_argument("--port", type=int, default=None)
+    serve_knowledge.set_defaults(func=_taking_args(cmd_serve_knowledge))
     return parser
 
 

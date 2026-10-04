@@ -30,6 +30,10 @@ from pydantic import BaseModel, Field
 from knowledge_assistant.application.health import HealthService
 from knowledge_assistant.domain.clock import Clock
 from knowledge_assistant.domain.health import ProbeStatus
+from knowledge_assistant.interfaces.http.knowledge import (
+    KnowledgeQueryPort,
+    build_knowledge_router,
+)
 from knowledge_assistant.interfaces.http.middleware import (
     AccessLogMiddleware,
     AuthenticationBoundaryMiddleware,
@@ -42,6 +46,7 @@ from knowledge_assistant.observability.metrics import Metrics
 __all__ = [
     "create_app",
     "build_health_router",
+    "build_knowledge_router",
     "build_meta_router",
     "SERVICE_VERSION",
     "register_middleware",
@@ -183,6 +188,7 @@ def register_middleware(
     *,
     max_body_bytes: int,
     metrics: Metrics | None = None,
+    require_authentication: bool = True,
 ) -> None:
     """Register the middleware stack in the documented execution order.
 
@@ -194,9 +200,15 @@ def register_middleware(
         app: Application to instrument.
         max_body_bytes: Request body size limit.
         metrics: Optional metrics facade for the access log.
+        require_authentication: Whether to install the failing-closed authentication gate. The
+            flag defaults to true, and turning it off *removes a guardrail* rather than adding
+            authentication - which is why settings validation refuses it outside local
+            development. It exists so a local demo can reach a route the gate would otherwise
+            deny, and so that doing so is an explicit, logged decision.
 
     """
-    app.add_middleware(AuthenticationBoundaryMiddleware)
+    if require_authentication:
+        app.add_middleware(AuthenticationBoundaryMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(AccessLogMiddleware, metrics=metrics)
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=max_body_bytes)
@@ -211,6 +223,8 @@ def create_app(
     clock: Clock,
     max_body_bytes: int = 1024 * 1024,
     metrics: Metrics | None = None,
+    knowledge: KnowledgeQueryPort | None = None,
+    require_authentication: bool = True,
 ) -> FastAPI:
     """Create the FastAPI application.
 
@@ -225,6 +239,12 @@ def create_app(
         clock: Injected clock, retained on ``app.state`` for middleware and tests.
         max_body_bytes: Request body size limit.
         metrics: Optional metrics facade.
+        require_authentication: Whether to install the failing-closed authentication gate.
+            Defaults to true.
+        knowledge: End-to-end answering use case. When supplied, the knowledge query route is
+            registered; when omitted the app serves only the foundation endpoints. Optional so
+            the application layer stays importable by tests and health checks without a
+            database, and so an app built for liveness never starts a connection pool.
 
     Returns:
         A configured ``FastAPI`` instance.
@@ -233,10 +253,11 @@ def create_app(
     app = FastAPI(
         title="Intelligent University Knowledge Assistant",
         version=SERVICE_VERSION,
-        summary="Phase 1 engineering foundation. No business endpoints are implemented yet.",
+        summary="University knowledge assistant over an in-house retrieval pipeline.",
         description=(
-            "This build exposes only foundation endpoints. Business functionality is "
-            "deliberately absent: see docs/03-architecture/REPOSITORY.md."
+            "Foundation endpoints plus POST /api/v1/knowledge/query, which answers from "
+            "documents retrieved out of the local corpus and cites the passages it used. "
+            "A question the corpus does not cover is refused rather than answered."
         ),
         docs_url="/docs",
         redoc_url=None,
@@ -246,7 +267,14 @@ def create_app(
     app.state.clock = clock
     app.include_router(build_health_router(health, service_name=service_name))
     app.include_router(build_meta_router(settings_public=settings_public))
-    register_middleware(app, max_body_bytes=max_body_bytes, metrics=metrics)
+    if knowledge is not None:
+        app.include_router(build_knowledge_router(knowledge))
+    register_middleware(
+        app,
+        max_body_bytes=max_body_bytes,
+        metrics=metrics,
+        require_authentication=require_authentication,
+    )
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:
@@ -256,7 +284,13 @@ def create_app(
             A short string describing where to look. Deliberately not a landing page.
 
         """
-        return {"service": service_name, "docs": "/docs", "health": "/healthz", "ready": "/readyz"}
+        return {
+            "service": service_name,
+            "docs": "/docs",
+            "health": "/healthz",
+            "ready": "/readyz",
+            "knowledge": "/api/v1/knowledge/query",
+        }
 
     return app
 
