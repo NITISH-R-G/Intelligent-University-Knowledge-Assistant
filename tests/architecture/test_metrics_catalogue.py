@@ -77,7 +77,8 @@ class TestCatalogueIntegrity:
     @pytest.mark.parametrize("field", ["purpose", "owner", "alert_implication"])
     def test_every_metric_documents_the_field(self, field: str) -> None:
         """The brief requires purpose, owner and alert implication for every metric. A blank
-        field is the same as a missing field, so emptiness is checked too."""
+        field is the same as a missing field, so emptiness is checked too.
+        """
         for meta in METRIC_CATALOGUE:
             assert getattr(meta, field).strip(), f"{meta.name} has an empty {field}"
 
@@ -93,7 +94,8 @@ class TestCatalogueIntegrity:
 
     def test_every_named_constant_is_catalogued(self) -> None:
         """A constant defined on ``MetricNames`` but absent from the catalogue is an
-        undocumented metric that will be scraped and never queried."""
+        undocumented metric that will be scraped and never queried.
+        """
         declared = {
             value
             for name, value in vars(MetricNames).items()
@@ -109,19 +111,20 @@ class TestCardinalityDiscipline:
     @pytest.mark.parametrize("meta", METRIC_CATALOGUE, ids=lambda m: m.name)
     def test_no_forbidden_label(self, meta: object) -> None:
         """One forbidden label is enough to create unbounded series."""
-        for label in getattr(meta, "labels"):
+        for label in meta.labels:
             assert label not in _FORBIDDEN_LABELS, f"{meta.name} carries {label}"
 
     @pytest.mark.parametrize("meta", METRIC_CATALOGUE, ids=lambda m: m.name)
     def test_labels_are_from_the_allowed_set(self, meta: object) -> None:
-        for label in getattr(meta, "labels"):
+        for label in meta.labels:
             assert label in _LOW_CARDINALITY_LABELS, f"{meta.name} has undeclared label {label}"
 
     @pytest.mark.parametrize("meta", METRIC_CATALOGUE, ids=lambda m: m.name)
     def test_label_count_is_bounded(self, meta: object) -> None:
         """Series count is the product of label cardinalities. Five labels is already a
-        design smell."""
-        assert len(getattr(meta, "labels")) <= 3, f"{meta.name} has too many labels"
+        design smell.
+        """
+        assert len(meta.labels) <= 3, f"{meta.name} has too many labels"
 
 
 class TestInstrumentsMatchCatalogue:
@@ -145,7 +148,8 @@ class TestInstrumentsMatchCatalogue:
 
     def test_latency_buckets_are_sorted_and_include_the_slo_targets(self) -> None:
         """Histogram buckets determine whether a p95 is computable at all. A bucket set that
-        stops below the latency target silently makes the SLO unmeasurable."""
+        stops below the latency target silently makes the SLO unmeasurable.
+        """
         assert list(LATENCY_BUCKETS_SECONDS) == sorted(LATENCY_BUCKETS_SECONDS)
         assert LATENCY_BUCKETS_SECONDS[-1] >= 10.0, "must cover the slow tail"
 

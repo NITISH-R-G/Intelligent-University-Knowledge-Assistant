@@ -32,6 +32,7 @@ def _settings(**overrides: object) -> Settings:
 
     Returns:
         A ``Settings`` instance.
+
     """
     base: dict[str, object] = {"environment": "local", "database_url": DSN}
     base.update(overrides)
@@ -47,13 +48,14 @@ class TestClassificationIsTotal:
 
     def test_classification_map_has_no_extras(self) -> None:
         """A category for a field that no longer exists is stale documentation."""
-        actual = {name for name in Settings.model_fields}
+        actual = set(Settings.model_fields)
         assert set(SETTING_CATEGORIES) == actual
 
     def test_all_four_categories_are_used(self) -> None:
         """The four-category scheme is documented; a category with no members means the
-        documentation describes a distinction the code does not make."""
-        used = {category for category in SETTING_CATEGORIES.values()}
+        documentation describes a distinction the code does not make.
+        """
+        used = set(SETTING_CATEGORIES.values())
         assert used == set(ConfigCategory)
 
     def test_database_url_is_a_secret(self) -> None:
@@ -69,13 +71,15 @@ class TestValidation:
 
     def test_unknown_setting_is_rejected(self) -> None:
         """A typo'd environment variable must not be silently ignored. ``extra="forbid"``
-        turns "works locally, ignored in CI" into a startup crash."""
+        turns "works locally, ignored in CI" into a startup crash.
+        """
         with pytest.raises(ValidationError):
             _settings(totally_made_up_setting=1)
 
     def test_pool_max_below_min_is_rejected(self) -> None:
         """A maximum below the minimum is an impossible pool; psycopg would fail later,
-        at connection time, in production."""
+        at connection time, in production.
+        """
         with pytest.raises(ValidationError, match="db_pool_max_size must be >= db_pool_min_size"):
             _settings(db_pool_min_size=10, db_pool_max_size=5)
 
@@ -98,19 +102,23 @@ class TestValidation:
 
     def test_missing_database_url_is_rejected(self) -> None:
         """There is no safe default DSN. Guessing one would mean connecting to whatever
-        happens to be on localhost:5432."""
+        happens to be on localhost:5432.
+        """
         with pytest.raises(ValidationError):
             Settings(environment="local")  # type: ignore[call-arg]
 
     def test_cors_origins_accept_comma_separated_string(self) -> None:
         """Container environments inject lists as strings; rejecting that would push people
-        toward JSON files for configuration."""
-        assert _settings(cors_allowed_origins="https://a.example, https://b.example")\
-            .cors_allowed_origins == ("https://a.example", "https://b.example")
+        toward JSON files for configuration.
+        """
+        assert _settings(
+            cors_allowed_origins="https://a.example, https://b.example"
+        ).cors_allowed_origins == ("https://a.example", "https://b.example")
 
     def test_settings_are_frozen(self) -> None:
         """Settings are process-wide state; mutation at runtime means two components
-        disagreed about the configuration."""
+        disagreed about the configuration.
+        """
         with pytest.raises(ValidationError):
             _settings().port = 9090  # type: ignore[misc]
 
@@ -132,13 +140,15 @@ class TestProductionSafety:
 
     def test_loopback_host_rejected_in_production(self) -> None:
         """Binding to 127.0.0.1 in production produces a service that is healthy and
-        unreachable - the worst possible failure, because every check passes."""
+        unreachable - the worst possible failure, because every check passes.
+        """
         with pytest.raises(ValidationError, match="must not be loopback"):
             self._prod(host="127.0.0.1")
 
     def test_disabling_authentication_rejected_in_production(self) -> None:
         """Phase 1 has no auth implementation, so the only thing preventing unauthenticated
-        business endpoints is this flag."""
+        business endpoints is this flag.
+        """
         with pytest.raises(ValidationError, match="require_authentication must be true"):
             self._prod(require_authentication=False)
 
@@ -148,13 +158,15 @@ class TestProductionSafety:
 
     def test_debug_logging_rejected_in_production(self) -> None:
         """Debug logging in production is both a cost and a disclosure risk: it routinely
-        logs request payloads."""
+        logs request payloads.
+        """
         with pytest.raises(ValidationError, match="log_level"):
             self._prod(log_level="debug")
 
     def test_non_loopback_metrics_rejected_in_production(self) -> None:
         """Metrics expose dependency names, error rates and queue depth to anyone who can
-        reach the port. That is an information-disclosure surface, not a convenience."""
+        reach the port. That is an information-disclosure surface, not a convenience.
+        """
         with pytest.raises(ValidationError, match="metrics_host must be loopback"):
             self._prod(metrics_host="0.0.0.0")
 
@@ -164,7 +176,8 @@ class TestProductionSafety:
 
     def test_all_production_problems_are_reported_at_once(self) -> None:
         """Reporting one problem per restart turns a misconfigured deploy into a guessing
-        game; the operator should see the full list immediately."""
+        game; the operator should see the full list immediately.
+        """
         with pytest.raises(ValidationError) as excinfo:
             self._prod(
                 host="127.0.0.1",
@@ -192,7 +205,8 @@ class TestNoLeaks:
 
     def test_public_summary_is_an_allow_list(self) -> None:
         """The public endpoint must not be a filtered dump - a filter leaks whatever a
-        future commit forgets to classify."""
+        future commit forgets to classify.
+        """
         summary = _settings().public_summary()
         assert set(summary) == {"service", "environment"}
         assert "database_url" not in summary
@@ -204,7 +218,8 @@ class TestNoLeaks:
 
     def test_repr_does_not_expose_the_dsn(self) -> None:
         """``repr`` reaches tracebacks and debugger output; a SecretStr field must not be
-        revealed there."""
+        revealed there.
+        """
         assert "dev@localhost" not in repr(_settings())
 
     @pytest.mark.parametrize("category", list(ConfigCategory))
@@ -223,7 +238,9 @@ class TestNoLeaks:
 class TestLoading:
     """Environment loading, the only supported source."""
 
-    def test_load_settings_reads_prefixed_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_load_settings_reads_prefixed_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("KA_DATABASE_URL", "postgresql://x:y@db:5432/ka")
         monkeypatch.setenv("KA_PORT", "9999")
         assert load_settings().port == 9999
@@ -232,7 +249,8 @@ class TestLoading:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A bad value in the environment must raise, so the entrypoint can exit 2 with a
-        clear message rather than starting in a half-configured state."""
+        clear message rather than starting in a half-configured state.
+        """
         monkeypatch.setenv("KA_DATABASE_URL", "postgresql://x:y@db:5432/ka")
         monkeypatch.setenv("KA_PORT", "not-a-number")
         with pytest.raises(ValidationError):

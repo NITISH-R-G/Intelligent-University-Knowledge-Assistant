@@ -56,12 +56,21 @@ def upgrade() -> None:
         sa.Column("available_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("claimed_by", sa.Text(), nullable=True),
-        sa.Column("payload", sa.dialects.postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default="{}"),
+        sa.Column(
+            "payload",
+            sa.dialects.postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+            server_default="{}",
+        ),
         sa.Column("result", sa.dialects.postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("last_error", sa.Text(), nullable=True),
         sa.Column("idempotency_key", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint(
             f"state IN {JOB_STATES}",
@@ -105,7 +114,9 @@ def upgrade() -> None:
         sa.Column("key", sa.Text(), nullable=False),
         sa.Column("status", sa.Text(), nullable=False, server_default="in_progress"),
         sa.Column("request_fingerprint", sa.Text(), nullable=False),
-        sa.Column("response_payload", sa.dialects.postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column(
+            "response_payload", sa.dialects.postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),

@@ -57,6 +57,7 @@ def translate_db_error(exc: BaseException, *, dependency: str = "postgres") -> E
 
     Raises:
         Never. Returns the translated error instead.
+
     """
     type_name = type(exc).__name__
     if any(marker in type_name for marker in _VIOLATION_MARKERS):
@@ -109,6 +110,7 @@ def build_pool(
     Returns:
         A configured, unopened pool. The caller opens it during startup so that a failure to
         connect is a startup failure rather than a first-request failure.
+
     """
     configure = _make_configure(statement_timeout_ms)
     return AsyncConnectionPool(
@@ -144,6 +146,7 @@ def _make_configure(statement_timeout_ms: int) -> Any:
 
     Returns:
         An async callable suitable for ``AsyncConnectionPool(configure=...)``.
+
     """
 
     async def _configure(conn: AsyncConnection[Any]) -> None:
@@ -167,6 +170,7 @@ async def _health_check(conn: AsyncConnection[Any]) -> bool:
 
     Returns:
         ``True`` if the connection is usable.
+
     """
     try:
         async with conn.cursor() as cur:
@@ -202,6 +206,7 @@ class Database:
         Raises:
             DependencyUnavailableError: If the database is not reachable within the connect
                 timeout. Failing here - at startup - is deliberate.
+
         """
         try:
             await self._pool.open(wait=True, timeout=30.0)
@@ -218,6 +223,7 @@ class Database:
         Returns:
             An async context manager. Driver exceptions raised inside the block are
             translated by the caller's repository methods.
+
         """
         return self._pool.connection()
 
@@ -243,5 +249,6 @@ def utcnow() -> dt.datetime:
 
     Returns:
         Timezone-aware current UTC time.
+
     """
-    return dt.datetime.now(tz=dt.timezone.utc)
+    return dt.datetime.now(tz=dt.UTC)

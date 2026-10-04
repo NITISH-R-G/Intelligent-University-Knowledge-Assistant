@@ -7,7 +7,11 @@ name = "knowledge-assistant"
 version = "0.1.0"
 description = "Intelligent University Knowledge Assistant - Phase 1 engineering foundation"
 readme = "README.md"
-requires-python = ">=3.11"
+# The floor is 3.12, not 3.11, and that is a correctness requirement rather than a
+# preference: the code uses PEP 695 `type` alias statements (`application/ports.py`,
+# `application/idempotency.py`), which are a 3.12 language feature. Declaring 3.11 here
+# advertised a support level the code cannot actually parse.
+requires-python = ">=3.12"
 license = { text = "Proprietary" }  # OQ-001 / DECISION_LOCK D-001: licence decision pending
 
 # Dependencies are grouped by ROLE, not by convenience. The lockfile (requirements.lock)
@@ -55,7 +59,8 @@ where = ["src"]
 # ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+# Must match `requires-python`. See the note there.
+target-version = "py312"
 src = ["src", "tests", "scripts", "benchmarks"]
 
 [tool.ruff.lint]
@@ -89,9 +94,42 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106", "ANN201", "D100", "D103", "PLR2004"]
+# Tests. Every entry is a convention difference, not a defect tolerance:
+#  - S101 assert, S105/S106: tests assert on credentials and host strings by design.
+#  - ANN001/ANN201: pytest injects fixtures; annotating them adds noise, not safety.
+#  - D100/D103: module and function docstrings; the module docstring states the intent and
+#    every test name is a full sentence naming the guarantee it defends.
+#  - D102: same reason for test methods - `test_a_duplicate_submission_runs_the_operation_once`
+#    is already the specification, and a second restatement of it is noise.
+#  - D205: test docstrings carry a single-sentence rationale that frequently wraps past the
+#    100-column limit. Splitting it into summary+blank+description would break the sentence
+#    in half for no reader benefit.
+#  - TID252: shared test doubles live in tests/conftest.py and are imported relatively.
+#  - S104: several tests assert that binding all interfaces is REFUSED in production.
+#  - PLR2004: status codes and thresholds are clearer inline than behind named constants.
+"tests/**" = [
+  "S101", "S104", "S105", "S106",
+  "ANN001", "ANN201",
+  "D100", "D102", "D103", "D205",
+  "TID252", "PLR2004",
+]
 "benchmarks/**" = ["S101", "T201"]
 "scripts/**" = ["S603", "S607", "T201", "ANN"]
+# The test doubles implement the same Protocols as the production adapters, so they must
+# accept every parameter the port declares - `result`, `now`, `*args`, `**kwargs` - even
+# where the double does not need to read them. Dropping or renaming them would break
+# structural conformance to the port, which is the whole point of using real ports here.
+"tests/conftest.py" = ["ARG002"]
+# The `ka` developer's CLI exists to write to the developer's terminal. T201 bans print() so
+# that library code never bypasses the structured logger; a CLI is the one place where
+# human-readable stdout is the correct output.
+"src/knowledge_assistant/interfaces/cli.py" = ["T201"]
+# Database adapters. S608 fires on f-strings containing SQL, but it cannot tell a
+# module-level column-list constant from user input. Every query in this package binds its
+# values through psycopg's named placeholders (`%(name)s`); the only interpolated values are
+# `_JOB_COLUMNS` / `_COLUMNS`, which are literals defined in the same module. The invariant
+# is asserted by tests/architecture/test_dependency_rules.py.
+"src/knowledge_assistant/infrastructure/db/*.py" = ["S608"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "parents"   # no `from ..x import y` anywhere
@@ -105,7 +143,7 @@ docstring-code-format = true
 # are unavailable.
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"   # must match `requires-python`; see pyproject `[project]`
 files = ["src", "scripts", "benchmarks"]
 strict = true
 warn_unreachable = true

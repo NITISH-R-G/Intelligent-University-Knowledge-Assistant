@@ -81,12 +81,8 @@ class TestClassification:
 
     def test_unknown_failures_still_stop_at_the_ceiling(self) -> None:
         """Unknown must retry a bounded number of times, then dead-letter."""
-        assert should_retry(
-            failure_class=FailureClass.UNKNOWN, attempts_used=2, max_attempts=3
-        )
-        assert not should_retry(
-            failure_class=FailureClass.UNKNOWN, attempts_used=3, max_attempts=3
-        )
+        assert should_retry(failure_class=FailureClass.UNKNOWN, attempts_used=2, max_attempts=3)
+        assert not should_retry(failure_class=FailureClass.UNKNOWN, attempts_used=3, max_attempts=3)
 
 
 class TestBackoff:
@@ -116,7 +112,9 @@ class TestBackoff:
             base_delay_seconds(1, base_seconds=1.0, cap_seconds=0.0)
 
     def test_large_attempt_does_not_overflow(self) -> None:
-        """Attempt numbers are bounded by MAX_ATTEMPTS_CEILING, but the function must not overflow."""
+        """Attempt numbers are bounded by MAX_ATTEMPTS_CEILING, but the function must not
+        overflow computing an intermediate power of two.
+        """
         assert base_delay_seconds(10_000, base_seconds=1.0, cap_seconds=300.0) == 300.0
 
 
@@ -149,7 +147,7 @@ class TestJitter:
 
     def test_next_attempt_at_is_in_the_future(self) -> None:
         """A retry must be scheduled strictly after now."""
-        now = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        now = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         when = next_attempt_at(
             now=now, attempt=1, base_seconds=1.0, cap_seconds=60.0, unit_interval=0.0
         )
@@ -184,7 +182,7 @@ class TestStateMachine:
             state=JobState.PENDING,
             attempts_used=0,
             max_attempts=3,
-            available_at=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+            available_at=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
             lease_expires_at=None,
             payload={},
         )

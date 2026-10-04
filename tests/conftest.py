@@ -31,7 +31,11 @@ from knowledge_assistant.config.settings import Settings
 from knowledge_assistant.domain.clock import UTC, FixedClock
 from knowledge_assistant.domain.errors import DependencyUnavailableError
 from knowledge_assistant.domain.health import ProbeCriticality, ProbeResult, ProbeStatus
-from knowledge_assistant.domain.idempotency import IdempotencyRecord, IdempotencyScope, IdempotencyStatus
+from knowledge_assistant.domain.idempotency import (
+    IdempotencyRecord,
+    IdempotencyScope,
+    IdempotencyStatus,
+)
 from knowledge_assistant.domain.jobs import Job, JobClaim, JobState
 from knowledge_assistant.interfaces.http.app import create_app
 
@@ -51,6 +55,7 @@ def clock() -> FixedClock:
 
     Returns:
         A ``FixedClock``.
+
     """
     return FixedClock(TEST_EPOCH)
 
@@ -61,6 +66,7 @@ def settings() -> Settings:
 
     Returns:
         Settings built from a development DSN.
+
     """
     return Settings(  # type: ignore[call-arg]
         environment="test",
@@ -87,6 +93,7 @@ class InMemoryJobRepository:
 
         Args:
             clock: Clock used for lease arithmetic.
+
         """
         self._jobs: dict[str, Job] = {}
         self._clock = clock
@@ -112,6 +119,7 @@ class InMemoryJobRepository:
 
         Returns:
             The created job, or the existing job for a duplicate key.
+
         """
         if idempotency_key is not None:
             for job in self._jobs.values():
@@ -142,6 +150,7 @@ class InMemoryJobRepository:
 
         Returns:
             A claim, or ``None``.
+
         """
         candidates = sorted(
             (
@@ -168,7 +177,9 @@ class InMemoryJobRepository:
         )
         self._jobs[target.id] = claimed
         return JobClaim(
-            job=claimed, claimed_at=now, lease_expires_at=claimed.lease_expires_at  # type: ignore[arg-type]
+            job=claimed,
+            claimed_at=now,
+            lease_expires_at=claimed.lease_expires_at,  # type: ignore[arg-type]
         )
 
     async def mark_succeeded(self, *, claim: JobClaim, result: Mapping[str, Any]) -> None:
@@ -177,6 +188,7 @@ class InMemoryJobRepository:
         Args:
             claim: Ownership proof.
             result: Handler result.
+
         """
         self.settle_calls.append((claim.job.id, "succeeded"))
         if self._jobs[claim.job.id].state is not JobState.RUNNING:
@@ -192,11 +204,14 @@ class InMemoryJobRepository:
             claim: Ownership proof.
             error: Failure summary.
             next_available_at: Next eligible time.
+
         """
         self.settle_calls.append((claim.job.id, "retry"))
         if self._jobs[claim.job.id].state is not JobState.RUNNING:
             return
-        self._replace(claim.job.id, state=JobState.RETRY, available_at=next_available_at, last_error=error)
+        self._replace(
+            claim.job.id, state=JobState.RETRY, available_at=next_available_at, last_error=error
+        )
 
     async def mark_dead_lettered(self, *, claim: JobClaim, error: str) -> None:
         """Dead-letter if the claim is still current.
@@ -204,6 +219,7 @@ class InMemoryJobRepository:
         Args:
             claim: Ownership proof.
             error: Failure summary.
+
         """
         self.settle_calls.append((claim.job.id, "dead_lettered"))
         if self._jobs[claim.job.id].state is not JobState.RUNNING:
@@ -219,6 +235,7 @@ class InMemoryJobRepository:
 
         Returns:
             The updated job.
+
         """
         from dataclasses import replace  # noqa: PLC0415
 
@@ -234,6 +251,7 @@ class InMemoryJobRepository:
 
         Returns:
             The job or ``None``.
+
         """
         return self._jobs.get(job_id)
 
@@ -242,6 +260,7 @@ class InMemoryJobRepository:
 
         Returns:
             Mapping of state to count.
+
         """
         counts: dict[str, int] = {}
         for job in self._jobs.values():
@@ -260,11 +279,10 @@ class InMemoryJobRepository:
 
         Returns:
             Age in seconds or ``None``.
+
         """
         pending = [
-            job
-            for job in self._jobs.values()
-            if job.state in (JobState.PENDING, JobState.RETRY)
+            job for job in self._jobs.values() if job.state in (JobState.PENDING, JobState.RETRY)
         ]
         if not pending:
             return None
@@ -291,6 +309,7 @@ class InMemoryIdempotencyStore:
 
         Returns:
             The record or ``None``.
+
         """
         return self._records.get((tenant_id, scope.value, key))
 
@@ -316,6 +335,7 @@ class InMemoryIdempotencyStore:
 
         Returns:
             ``None`` if the caller owns the key, else the existing record.
+
         """
         ident = (tenant_id, scope.value, key)
         existing = self._records.get(ident)
@@ -350,6 +370,7 @@ class InMemoryIdempotencyStore:
             key: Client key.
             response_payload: Stored response.
             now: Current time.
+
         """
         ident = (tenant_id, scope.value, key)
         existing = self._records[ident]
@@ -368,6 +389,7 @@ class InMemoryIdempotencyStore:
             tenant_id: Owning tenant.
             scope: Operation family.
             key: Client key.
+
         """
         self._records.pop((tenant_id, scope.value, key), None)
 
@@ -394,6 +416,7 @@ class FakeProbe:
             detail: Detail string.
             raises: Exception to raise instead of returning, for failure injection.
             delay_seconds: Artificial latency, for timeout testing.
+
         """
         self._name = name
         self._status = status
@@ -420,6 +443,7 @@ class FakeProbe:
 
         Raises:
             BaseException: The configured exception, if any.
+
         """
         if self._delay:
             import asyncio  # noqa: PLC0415
@@ -443,6 +467,7 @@ class CountingDatabase:
 
         Args:
             failure: Exception raised by ``acquire`` when supplied.
+
         """
         self.failure = failure
         self.closed = False
@@ -452,6 +477,7 @@ class CountingDatabase:
 
         Raises:
             DependencyUnavailableError: If configured to fail.
+
         """
         if self.failure:
             raise self.failure
@@ -470,16 +496,17 @@ class CountingDatabase:
             DependencyUnavailableError: If configured to fail. Raised eagerly so that the
                 failure mode matches psycopg's, which refuses at checkout rather than inside
                 the context.
+
         """
         failure = self.failure
 
         class _Ctx:
-            async def __aenter__(self_inner: Any) -> Any:
+            async def __aenter__(self) -> Any:
                 if failure is not None:
                     raise failure
                 return _FakeConnection()
 
-            async def __aexit__(self_inner: Any, *exc: object) -> None:
+            async def __aexit__(self, *exc: object) -> None:
                 return None
 
         return _Ctx()
@@ -496,6 +523,7 @@ class _FakeConnection:
 
         Returns:
             A fake cursor.
+
         """
         return _FakeCursor()
 
@@ -509,7 +537,7 @@ class _FakeCursor:
 
     async def __aexit__(self, *exc: object) -> None:
         """Exit the cursor context."""
-        return None
+        return
 
     async def execute(self, *args: object, **kwargs: object) -> None:
         """Accept an execute call.
@@ -517,16 +545,18 @@ class _FakeCursor:
         Args:
             *args: Ignored.
             **kwargs: Ignored.
+
         """
-        return None
+        return
 
     async def fetchone(self) -> None:
         """Return no row.
 
         Returns:
             ``None``.
+
         """
-        return None
+        return
 
 
 @pytest.fixture
@@ -538,6 +568,7 @@ def job_repository(clock: FixedClock) -> InMemoryJobRepository:
 
     Returns:
         The repository double.
+
     """
     return InMemoryJobRepository(clock=clock)
 
@@ -548,6 +579,7 @@ def idempotency_store() -> InMemoryIdempotencyStore:
 
     Returns:
         The store double.
+
     """
     return InMemoryIdempotencyStore()
 
@@ -562,6 +594,7 @@ def submit_job(job_repository: InMemoryJobRepository, clock: FixedClock) -> Subm
 
     Returns:
         The use case.
+
     """
     return SubmitJob(job_repository, clock=clock)
 
@@ -578,6 +611,7 @@ def idempotent_executor(
 
     Returns:
         The use case.
+
     """
     return IdempotentExecutor(idempotency_store, clock=clock)
 
@@ -594,6 +628,7 @@ def make_executor(
 
     Returns:
         Factory taking a handler mapping.
+
     """
 
     def _factory(handlers: Mapping[str, Any], **kwargs: Any) -> ExecuteJobOnce:
@@ -621,6 +656,7 @@ def make_health_service(
 
     Returns:
         The service.
+
     """
     return HealthService(probes, clock=clock, timeout_seconds=timeout_seconds)
 
@@ -642,6 +678,7 @@ def make_app(
 
     Returns:
         A ``FastAPI`` application.
+
     """
     return create_app(
         health=make_health_service(probes, clock),
@@ -658,6 +695,7 @@ async def healthy_client() -> AsyncIterator[Any]:
 
     Yields:
         An ``httpx.AsyncClient`` over an ASGI transport.
+
     """
     import httpx  # noqa: PLC0415
 
@@ -676,5 +714,6 @@ def dependency_error() -> DependencyUnavailableError:
 
     Returns:
         A ``DependencyUnavailableError``.
+
     """
     return DependencyUnavailableError("simulated", dependency="postgres")

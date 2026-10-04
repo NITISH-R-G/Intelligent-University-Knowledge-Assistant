@@ -14,11 +14,11 @@ from typing import Any
 import pytest
 
 from knowledge_assistant.observability.logging import (
-    MAX_VALUE_CHARS,
-    REDACTED_PLACEHOLDER,
-    REDACTED_KEYS,
-    SCHEMA_VERSION,
     _REQUIRED_FIELDS,
+    MAX_VALUE_CHARS,
+    REDACTED_KEYS,
+    REDACTED_PLACEHOLDER,
+    SCHEMA_VERSION,
     add_required_fields,
     bind_request,
     redact_processor,
@@ -35,6 +35,7 @@ def _redact(event: dict[str, Any]) -> dict[str, Any]:
 
     Returns:
         The redacted dictionary.
+
     """
     return dict(redact_processor(None, "info", dict(event)))
 
@@ -63,7 +64,8 @@ class TestSecretRedaction:
     )
     def test_credential_keys_are_masked(self, key: str) -> None:
         """The denylist is substring-based on purpose: ``db_password`` and ``X-Api-Key`` are
-        the names people actually use, not the ones a strict allow-list would predict."""
+        the names people actually use, not the ones a strict allow-list would predict.
+        """
         assert _redact({key: "s3cr3t-value"})[key] == REDACTED_PLACEHOLDER
 
     def test_redaction_is_case_insensitive(self) -> None:
@@ -81,7 +83,8 @@ class TestSecretRedaction:
 
     def test_masked_value_cannot_be_recovered(self) -> None:
         """The masked value must be a fixed placeholder, not a truncation of the original -
-        a truncated secret is still a partial secret."""
+        a truncated secret is still a partial secret.
+        """
         out = _redact({"password": "abcdefghijklmnop"})["password"]
         assert out == REDACTED_PLACEHOLDER
         assert "abcdefgh" not in out
@@ -128,13 +131,15 @@ class TestSchema:
 
     def test_supplied_timestamp_is_not_overwritten(self) -> None:
         """A caller that has a precise timestamp keeps it; overriding would silently
-        destroy ordering information."""
+        destroy ordering information.
+        """
         event = add_required_fields(None, "info", {"ts": "2026-03-01T12:00:00Z"})
         assert event["ts"] == "2026-03-01T12:00:00Z"
 
     def test_redacted_event_is_json_serialisable(self) -> None:
         """The output must survive the renderer. A processor that returns a non-primitive
-        fails in the logging path, which is the worst possible place to fail."""
+        fails in the logging path, which is the worst possible place to fail.
+        """
         event = _redact({"a": 1, "b": [1, 2], "c": {"d": None}, "password": "p"})
         json.dumps(event)  # must not raise
 

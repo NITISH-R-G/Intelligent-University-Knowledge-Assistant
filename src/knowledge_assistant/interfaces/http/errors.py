@@ -33,6 +33,11 @@ __all__ = [
 #: RFC 9457 media type.
 PROBLEM_CONTENT_TYPE = "application/problem+json"
 
+#: Lowest status that counts as a server fault. Below this a handler's own detail text is
+#: safe to echo; at or above it, an exception message may contain internal detail and is
+#: replaced with a generic sentence.
+_SERVER_ERROR_FLOOR = 500
+
 #: Base URI for problem types. A stable identifier namespace so clients can switch on ``type``
 #: if they prefer URI matching over the ``code`` field.
 _TYPE_BASE = "https://errors.local/"
@@ -72,6 +77,7 @@ def problem_document(
 
     Returns:
         A ``JSONResponse`` with the problem media type.
+
     """
     body: dict[str, Any] = {
         "type": _TYPE_BASE + code,
@@ -83,7 +89,12 @@ def problem_document(
     }
     if context:
         body["context"] = context
-    return JSONResponse(status_code=status, content=body, media_type=PROBLEM_CONTENT_TYPE, headers=headers)
+    return JSONResponse(
+        status_code=status,
+        content=body,
+        media_type=PROBLEM_CONTENT_TYPE,
+        headers=headers,
+    )
 
 
 def _request_id(request: Request) -> str:
@@ -94,6 +105,7 @@ def _request_id(request: Request) -> str:
 
     Returns:
         The request id from state, or a placeholder if middleware did not run.
+
     """
     return str(request.scope.get("state", {}).get("request_id", "unknown"))
 
@@ -103,6 +115,7 @@ def install_exception_handlers(app: FastAPI) -> None:
 
     Args:
         app: Application to register handlers on.
+
     """
     logger = get_logger("error_handlers")
 
@@ -116,6 +129,7 @@ def install_exception_handlers(app: FastAPI) -> None:
 
         Returns:
             A problem-details response.
+
         """
         request_id = _request_id(request)
         logger.warning(
@@ -152,10 +166,14 @@ def install_exception_handlers(app: FastAPI) -> None:
         Returns:
             A problem-details response. Field paths are included because they describe the
             *request*, not the server.
+
         """
         request_id = _request_id(request)
         violations = [
-            {"field": ".".join(str(part) for part in err.get("loc", [])), "type": err.get("type", "")}
+            {
+                "field": ".".join(str(part) for part in err.get("loc", [])),
+                "type": err.get("type", ""),
+            }
             for err in exc.errors()[:20]
         ]
         return problem_document(
@@ -167,9 +185,7 @@ def install_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def _handle_http_exception(
-        request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
+    async def _handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         """Serialise a framework HTTP exception such as 404 or 405.
 
         Args:
@@ -178,6 +194,7 @@ def install_exception_handlers(app: FastAPI) -> None:
 
         Returns:
             A problem-details response.
+
         """
         request_id = _request_id(request)
         code = {
@@ -189,7 +206,9 @@ def install_exception_handlers(app: FastAPI) -> None:
         return problem_document(
             status=exc.status_code,
             code=code,
-            detail=str(exc.detail) if exc.status_code < 500 else "Internal server error.",
+            detail=str(exc.detail)
+            if exc.status_code < _SERVER_ERROR_FLOOR
+            else "Internal server error.",
             request_id=request_id,
         )
 
@@ -203,6 +222,7 @@ def install_exception_handlers(app: FastAPI) -> None:
 
         Returns:
             A problem-details response with a generic message.
+
         """
         request_id = _request_id(request)
         # exc_info=True makes the traceback reach the log, never the response.

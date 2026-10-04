@@ -34,6 +34,7 @@ def make_lifespan(database: Database) -> object:
     Returns:
         An async context manager suitable for ``FastAPI(lifespan=...)`` or for assigning to
         ``app.router.lifespan_context``.
+
     """
     logger = get_logger("lifespan")
 
@@ -50,6 +51,7 @@ def make_lifespan(database: Database) -> object:
         Raises:
             DependencyUnavailableError: If the pool cannot be opened, so the process fails to
                 start rather than starting unhealthy.
+
         """
         try:
             await database.open()

@@ -66,6 +66,11 @@ REQUEST_ID_REQUEST_HEADER = "X-Request-ID"
 #: until Phase 2 implements authentication.
 PUBLIC_PATHS: frozenset[str] = frozenset({"/healthz", "/readyz", "/version", "/metrics"})
 
+#: Lowest HTTP status counted as a server fault. Mirrors ``errors._SERVER_ERROR_FLOOR``;
+#: duplicated as a local constant because the middleware layer must not import from the
+#: error-handling module at runtime.
+_SERVER_ERROR_FLOOR = 500
+
 
 def _request_id_from_scope(scope: Scope) -> str:
     """Return the request id assigned by :class:`RequestIdMiddleware`, or a fresh one.
@@ -75,6 +80,7 @@ def _request_id_from_scope(scope: Scope) -> str:
 
     Returns:
         The correlation identifier for the current request.
+
     """
     return str(scope.get("state", {}).get("request_id") or new_request_id())
 
@@ -87,6 +93,7 @@ class RequestIdMiddleware:
 
         Args:
             app: Downstream ASGI app.
+
         """
         self.app = app
 
@@ -107,6 +114,7 @@ class RequestIdMiddleware:
 
             Args:
                 message: ASGI message being sent.
+
             """
             if message["type"] == "http.response.start":
                 raw_headers = MutableHeaders(scope=message)
@@ -137,6 +145,7 @@ class BodySizeLimitMiddleware:
         Args:
             app: Downstream ASGI app.
             max_bytes: Maximum permitted body size in bytes.
+
         """
         self.app = app
         self._max_bytes = max_bytes
@@ -177,6 +186,7 @@ class BodySizeLimitMiddleware:
 
             Returns:
                 The next ASGI message, or a disconnect when the limit is exceeded.
+
             """
             nonlocal received
             message = await receive()
@@ -200,6 +210,7 @@ class AccessLogMiddleware:
             metrics: Optional metrics facade. When supplied, request count, error count and
                 latency are recorded. Absent metrics must never break a request, so failures
                 here are swallowed deliberately.
+
         """
         self.app = app
         self._metrics = metrics
@@ -220,6 +231,7 @@ class AccessLogMiddleware:
 
             Args:
                 message: ASGI message being sent.
+
             """
             if message["type"] == "http.response.start":
                 status_holder["status"] = int(message["status"])
@@ -262,6 +274,7 @@ class AccessLogMiddleware:
             route: Route template, already low-cardinality.
             status: Response status.
             duration: Wall-clock duration in seconds.
+
         """
         if self._metrics is None:
             return
@@ -274,7 +287,7 @@ class AccessLogMiddleware:
         try:
             self._metrics.http_requests.add(1, labels)
             self._metrics.http_latency.record(duration, labels)
-            if status >= 500:
+            if status >= _SERVER_ERROR_FLOOR:
                 self._metrics.http_errors.add(1, labels)
         except Exception:  # noqa: BLE001, S110 - telemetry must never break serving
             pass
@@ -308,6 +321,7 @@ class SecurityHeadersMiddleware:
 
         Args:
             app: Downstream ASGI app.
+
         """
         self.app = app
 
@@ -322,6 +336,7 @@ class SecurityHeadersMiddleware:
 
             Args:
                 message: ASGI message being sent.
+
             """
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
@@ -354,6 +369,7 @@ class AuthenticationBoundaryMiddleware:
         Args:
             app: Downstream ASGI app.
             public_paths: Paths exempt from the gate. Defaults to :data:`PUBLIC_PATHS`.
+
         """
         self.app = app
         self._public_paths = public_paths if public_paths is not None else PUBLIC_PATHS
@@ -400,6 +416,7 @@ def install_middleware(
     Returns:
         The wrapped application. Execution order is: request id, body limit, access log,
         security headers, authentication gate, then the app.
+
     """
     wrapped: ASGIApp = AuthenticationBoundaryMiddleware(app)
     wrapped = SecurityHeadersMiddleware(wrapped)
@@ -408,8 +425,7 @@ def install_middleware(
     else:
         wrapped = AccessLogMiddleware(wrapped)
     wrapped = BodySizeLimitMiddleware(wrapped, max_bytes=max_body_bytes)
-    wrapped = RequestIdMiddleware(wrapped)
-    return wrapped
+    return RequestIdMiddleware(wrapped)
 
 
 MiddlewareCallable = Callable[[ASGIApp], ASGIApp]

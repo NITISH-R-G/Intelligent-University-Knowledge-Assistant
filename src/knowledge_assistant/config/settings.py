@@ -42,6 +42,10 @@ __all__ = [
 
 _ENV_PREFIX: Final[str] = "KA_"
 
+#: Hosts that mean "this machine only". Used by the production-safety validator, which must
+#: refuse a configuration that binds either the service or its metrics to loopback.
+_LOOPBACK_HOSTS: Final[frozenset[str]] = frozenset({"127.0.0.1", "localhost"})
+
 
 class Environment(enum.StrEnum):
     """Deployment environment.
@@ -84,7 +88,9 @@ class Settings(BaseSettings):
     )
 
     # --- identity / process -------------------------------------------------
-    environment: Annotated[Environment, Field(description="Deployment environment")] = Environment.LOCAL
+    environment: Annotated[Environment, Field(description="Deployment environment")] = (
+        Environment.LOCAL
+    )
     service_name: Annotated[str, Field(min_length=1, max_length=64)] = "knowledge-assistant"
 
     # --- HTTP ---------------------------------------------------------------
@@ -146,6 +152,7 @@ class Settings(BaseSettings):
 
         Returns:
             A list of origins, or the value unchanged.
+
         """
         if isinstance(value, str):
             return tuple(part.strip() for part in value.split(",") if part.strip())
@@ -165,6 +172,7 @@ class Settings(BaseSettings):
 
         Raises:
             ValueError: If the maximum is smaller than the minimum.
+
         """
         minimum = info.data.get("db_pool_min_size")
         if isinstance(minimum, int) and value < minimum:
@@ -181,11 +189,12 @@ class Settings(BaseSettings):
 
         Raises:
             ValueError: If a production safety rule is violated.
+
         """
         if not self.environment.is_production_like:
             return self
         problems: list[str] = []
-        if self.host == "127.0.0.1" or self.host == "localhost":
+        if self.host in _LOOPBACK_HOSTS:
             problems.append(
                 "host must not be loopback in staging/production: the service would be unreachable"
             )
@@ -195,7 +204,7 @@ class Settings(BaseSettings):
             problems.append("cors_allowed_origins must not contain '*' in staging/production")
         if self.log_level == "debug":
             problems.append("log_level must not be 'debug' in staging/production")
-        if self.metrics_host not in ("127.0.0.1", "localhost"):
+        if self.metrics_host not in _LOOPBACK_HOSTS:
             problems.append(
                 "metrics_host must be loopback in staging/production unless a scrape proxy is "
                 "configured; metrics expose internals"
@@ -211,14 +220,14 @@ class Settings(BaseSettings):
         Returns:
             Mapping of setting name to value or ``"***"``. Safe to log and to attach to a
             support ticket.
+
         """
         raw = self.model_dump(mode="python")
         # The category, not the value's Python type, decides masking. A SecretStr field
         # survives model_dump as a SecretStr object, so a type check would skip exactly the
         # value this function exists to protect.
         return {
-            key: mask_value(category, raw.get(key))
-            for key, category in SETTING_CATEGORIES.items()
+            key: mask_value(category, raw.get(key)) for key, category in SETTING_CATEGORIES.items()
         }
 
     def public_summary(self) -> dict[str, Any]:
@@ -272,6 +281,7 @@ def _assert_every_setting_classified(settings_cls: type[Settings]) -> None:
     Raises:
         AssertionError: If a field is unclassified. Called at import time so an unclassified
             setting cannot ship.
+
     """
     fields = set(settings_cls.model_fields)
     classified = set(SETTING_CATEGORIES)
@@ -297,5 +307,6 @@ def load_settings(**overrides: Any) -> Settings:
     Raises:
         pydantic.ValidationError: If any setting is invalid or a required secret is missing.
             The message names the field and never echoes a secret value.
+
     """
     return Settings(**overrides)  # type: ignore[call-arg]

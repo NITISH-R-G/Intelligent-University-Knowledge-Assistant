@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, Sequence
 
 __all__ = [
     "ProbeStatus",
@@ -68,6 +68,7 @@ class ProbeResult:
             it to a dependency name and a driver error code.
         latency_ms: Probe duration, used for the readiness latency budget.
         checked_at: Time the probe ran.
+
     """
 
     name: str
@@ -90,6 +91,7 @@ class HealthReport:
             separating the two.
         probes: Individual results, for diagnosis.
         generated_at: Time of aggregation.
+
     """
 
     ready: bool
@@ -116,6 +118,7 @@ def aggregate(probes: Iterable[ProbeResult], *, now: dt.datetime) -> HealthRepor
 
     Returns:
         The aggregated report.
+
     """
     ordered: Sequence[ProbeResult] = tuple(probes)
     ready = True
@@ -146,6 +149,7 @@ def safe_probe_detail(exc: BaseException) -> str:
 
     Returns:
         A token of the form ``failed:<exception_class_lowercased>``.
+
     """
     name = type(exc).__name__
     safe = "".join(ch if ch.isalnum() else "_" for ch in name).strip("_").lower()

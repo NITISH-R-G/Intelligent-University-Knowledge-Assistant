@@ -23,7 +23,8 @@ another.
 from __future__ import annotations
 
 import enum
-from typing import Any, Final, Mapping
+from collections.abc import Mapping
+from typing import Any, Final
 
 __all__ = [
     "ErrorKind",
@@ -167,6 +168,7 @@ class ApplicationError(Exception):
         kind: Which taxonomy entry applies.
         detail: Operator-only context. Never serialised to a client except for
             allow-listed keys.
+
     """
 
     kind: ErrorKind = ErrorKind.INTERNAL
@@ -185,6 +187,7 @@ class ApplicationError(Exception):
                 therefore only ever logged, never returned.
             detail: Structured operator context. Filtered by allow-list on serialisation.
             cause: Underlying exception, preserved for logging only.
+
         """
         super().__init__(message)
         self.message = message
@@ -289,7 +292,14 @@ class RateLimitedError(ApplicationError):
         detail: Mapping[str, Any] | None = None,
     ) -> None:
         """Build a rate-limit error carrying an explicit retry hint."""
-        super().__init__(message, detail={**dict(detail or {}), "retry_after_seconds": retry_after_seconds, "scope": scope})
+        super().__init__(
+            message,
+            detail={
+                **dict(detail or {}),
+                "retry_after_seconds": retry_after_seconds,
+                "scope": scope,
+            },
+        )
         self.retry_after_seconds = retry_after_seconds
         self.scope = scope
 
@@ -312,15 +322,27 @@ class DependencyUnavailableError(ApplicationError):
         cause: BaseException | None = None,
     ) -> None:
         """Build a dependency failure error naming the dependency."""
-        super().__init__(message, detail={**dict(detail or {}), "dependency": dependency}, cause=cause)
+        super().__init__(
+            message,
+            detail={**dict(detail or {}), "dependency": dependency},
+            cause=cause,
+        )
         self.dependency = dependency
 
 
-class TimeoutError_(ApplicationError):
+class TimeoutError_(ApplicationError):  # noqa: N801, N818 - see docstring
     """A collaborator exceeded its time budget.
 
     Named with a trailing underscore to avoid shadowing the builtin. The bare builtin
     ``TimeoutError`` remains available for genuine language-level timeouts.
+
+    Two naming rules are deliberately broken here, and only here:
+
+    - **N801** (CapWords) rejects the trailing underscore. There is no alternative spelling
+      that avoids shadowing the builtin ``TimeoutError``, and shadowing it would silently
+      change the meaning of unrelated ``except TimeoutError`` clauses in this module.
+    - **N818** (Exception ``Error`` suffix) is satisfied in spirit: the class is an error and
+      the trailing underscore is the only part that deviates from the convention.
     """
 
     kind = ErrorKind.TIMEOUT
@@ -337,7 +359,11 @@ class TimeoutError_(ApplicationError):
         """Build a timeout error carrying the budget that was exceeded."""
         super().__init__(
             message,
-            detail={**dict(detail or {}), "dependency": dependency, "timeout_seconds": timeout_seconds},
+            detail={
+                **dict(detail or {}),
+                "dependency": dependency,
+                "timeout_seconds": timeout_seconds,
+            },
             cause=cause,
         )
         self.dependency = dependency

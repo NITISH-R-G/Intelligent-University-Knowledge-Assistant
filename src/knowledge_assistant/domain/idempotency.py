@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Final, Mapping
+from typing import Any, Final
 
 __all__ = [
     "IdempotencyScope",
@@ -89,6 +90,7 @@ class IdempotencyRecord:
         Note:
             Expiry is evaluated against an injected ``now`` rather than read from a clock
             here, keeping this module free of I/O.
+
         """
         return now >= self.expires_at
 
@@ -121,6 +123,7 @@ def scoped_key(tenant_id: str, scope: IdempotencyScope, key: str) -> str:
     Returns:
         Deterministic composite key. Including the tenant in the key - rather than filtering
         on it later - means a cross-tenant collision is impossible at the storage level.
+
     """
     return f"{tenant_id}:{scope.value}:{key}"
 
@@ -141,6 +144,7 @@ def decide_replay(
     Returns:
         The decision to apply. Expiry is checked before status, because an expired record
         must not block a legitimate retry.
+
     """
     if record is None:
         return ReplayDecision.EXECUTE

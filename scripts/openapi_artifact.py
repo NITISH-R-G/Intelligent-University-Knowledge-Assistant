@@ -42,12 +42,13 @@ def build_document() -> dict[str, Any]:
         SystemExit: If configuration or application construction fails, which would mean the
             committed artefact was generated from a different application than the one that
             ships.
+
     """
     import datetime as dt  # noqa: PLC0415
 
     from knowledge_assistant.application.health import HealthService  # noqa: PLC0415
     from knowledge_assistant.config.settings import Settings  # noqa: PLC0415
-    from knowledge_assistant.domain.clock import FixedClock, UTC  # noqa: PLC0415
+    from knowledge_assistant.domain.clock import UTC, FixedClock  # noqa: PLC0415
     from knowledge_assistant.domain.health import (  # noqa: PLC0415
         ProbeCriticality,
         ProbeResult,
@@ -66,6 +67,7 @@ def build_document() -> dict[str, Any]:
 
             Returns:
                 A passing probe result.
+
             """
             return ProbeResult(
                 name=self.name,
@@ -93,6 +95,7 @@ def render(document: dict[str, Any]) -> str:
 
     Returns:
         Pretty-printed JSON with a trailing newline.
+
     """
     return json.dumps(document, indent=2, sort_keys=True) + "\n"
 
@@ -105,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns:
         ``0`` on success, ``1`` when the committed artefact is missing or stale.
+
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(

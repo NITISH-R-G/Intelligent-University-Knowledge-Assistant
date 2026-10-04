@@ -19,6 +19,7 @@ Shutdown behaviour is the part that is easy to get wrong, so it is explicit:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import signal
 from typing import Any
 
@@ -33,7 +34,15 @@ __all__ = ["WorkerRunner"]
 class WorkerRunner:
     """Polls the queue and executes jobs until stopped."""
 
-    __slots__ = ("_executor", "_clock", "_poll_interval", "_metrics", "_logger", "_stop", "_drain_timeout")
+    __slots__ = (
+        "_executor",
+        "_clock",
+        "_poll_interval",
+        "_metrics",
+        "_logger",
+        "_stop",
+        "_drain_timeout",
+    )
 
     def __init__(
         self,
@@ -54,6 +63,7 @@ class WorkerRunner:
             metrics: Optional metrics facade for queue health.
             drain_timeout_seconds: Maximum time to finish the in-flight job during shutdown.
             logger: Optional logger override, used by tests to capture output.
+
         """
         self._executor = executor
         self._clock = clock
@@ -76,6 +86,7 @@ class WorkerRunner:
 
         Returns:
             Number of jobs executed.
+
         """
         executed = 0
         iterations = 0
@@ -121,6 +132,7 @@ class WorkerRunner:
 
         Args:
             outcome: The use case outcome record.
+
         """
         job_type = self._executor_job_type(outcome)
         self._logger.info(
@@ -134,7 +146,12 @@ class WorkerRunner:
         if self._metrics is not None:
             try:
                 self._metrics.worker_job_outcomes.add(
-                    1, {"service": self._metrics.service, "job_type": job_type, "outcome": outcome.outcome}
+                    1,
+                    {
+                        "service": self._metrics.service,
+                        "job_type": job_type,
+                        "outcome": outcome.outcome,
+                    },
                 )
                 if outcome.outcome == "dead_lettered":
                     self._metrics.worker_dead_letter_depth.add(1)
@@ -158,7 +175,7 @@ class WorkerRunner:
         Called periodically by the run loop in a future iteration; exposed separately so the
         worker's readiness endpoint can report queue state without the run loop.
         """
-        return None
+        return
 
     def install_signal_handlers(self) -> None:
         """Install SIGTERM/SIGINT handlers that request a graceful stop.
@@ -168,9 +185,7 @@ class WorkerRunner:
         """
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            try:
-                loop.add_signal_handler(sig, self.request_stop)
-            except (NotImplementedError, RuntimeError):  # pragma: no cover - platform dependent
+            with contextlib.suppress(NotImplementedError, RuntimeError):
                 # Not all platforms support loop-level signal handlers. A missed handler means
                 # SIGTERM kills the process without draining, which the lease backstops.
-                pass
+                loop.add_signal_handler(sig, self.request_stop)

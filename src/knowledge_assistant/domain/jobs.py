@@ -18,12 +18,11 @@ is an injected value so tests can pin it.
 from __future__ import annotations
 
 import datetime as dt
-import math
 import enum
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Any, Final, Mapping
-
-from knowledge_assistant.domain.identifiers import new_id
+from typing import Any, Final
 
 __all__ = [
     "JobState",
@@ -109,6 +108,7 @@ def is_terminal(state: JobState) -> bool:
 
     Returns:
         ``True`` for SUCCEEDED and DEAD_LETTERED.
+
     """
     return state in _TERMINAL
 
@@ -124,6 +124,7 @@ def assert_transition_allowed(current: JobState, target: JobState) -> None:
         ValueError: If the transition is not in the allowed set. This is a programming
             error, not a runtime condition, hence ``ValueError`` rather than an
             ``ApplicationError``: it must never be reported to a client.
+
     """
     if target not in _ALLOWED_TRANSITIONS[current]:
         msg = f"illegal job state transition {current.value} -> {target.value}"
@@ -141,6 +142,7 @@ def classify_failure(exc: BaseException) -> FailureClass:
 
     Returns:
         The failure class.
+
     """
     # Imported lazily inside the function to keep this module import-cycle free if the
     # error taxonomy is ever moved.
@@ -180,6 +182,7 @@ def base_delay_seconds(
 
     Raises:
         ValueError: If ``attempt`` is less than 1, or a bound is non-positive.
+
     """
     if attempt < 1:
         msg = "attempt must be >= 1"
@@ -216,6 +219,7 @@ def apply_jitter(delay_seconds: float, unit_interval: float, *, ratio: float = 0
 
     Raises:
         ValueError: If ``unit_interval`` is outside ``[0, 1)`` or ``ratio`` outside ``[0, 1]``.
+
     """
     if not 0.0 <= unit_interval < 1.0:
         msg = "unit_interval must be in [0, 1)"
@@ -252,6 +256,7 @@ def next_attempt_at(
 
     Returns:
         Timezone-aware UTC timestamp.
+
     """
     delay = apply_jitter(
         base_delay_seconds(attempt, base_seconds=base_seconds, cap_seconds=cap_seconds),
@@ -281,6 +286,7 @@ def should_retry(
     Notes:
         A ``PERMANENT`` failure never retries. An ``UNKNOWN`` failure retries up to the
         ceiling, because treating unknown as permanent would lose work to a single blip.
+
     """
     if failure_class is FailureClass.PERMANENT:
         return False
@@ -334,9 +340,14 @@ class Job:
 
         Raises:
             ValueError: If the transition is illegal.
+
         """
         assert_transition_allowed(self.state, target)
-        attempts = self.attempts_used + 1 if target in (JobState.RUNNING, JobState.RETRY) else self.attempts_used
+        attempts = (
+            self.attempts_used + 1
+            if target in (JobState.RUNNING, JobState.RETRY)
+            else self.attempts_used
+        )
         return replace(
             self,
             state=target,
@@ -370,5 +381,6 @@ class JobClaim:
 
         Returns:
             ``True`` if the claim may be taken over by another worker.
+
         """
         return now >= self.lease_expires_at

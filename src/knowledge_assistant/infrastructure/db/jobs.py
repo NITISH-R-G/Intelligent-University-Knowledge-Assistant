@@ -22,7 +22,8 @@ disclosure hazard.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
@@ -47,6 +48,7 @@ def row_to_job(row: Mapping[str, Any]) -> Job:
 
     Returns:
         An immutable ``Job``.
+
     """
     return Job(
         id=str(row["id"]),
@@ -73,6 +75,7 @@ class PgJobRepository:
         Args:
             database: Object exposing ``acquire()`` as an async context manager yielding a
                 connection.
+
         """
         self._database = database
 
@@ -100,6 +103,7 @@ class PgJobRepository:
 
         Returns:
             The created job, or the pre-existing job on duplicate submission.
+
         """
         job_id = str(new_id())
         sql = f"""
@@ -119,10 +123,9 @@ class PgJobRepository:
             "payload": dict(payload),
             "idempotency_key": idempotency_key,
         }
-        async with self._database.acquire() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, params)
-                row = await cur.fetchone()
+        async with self._database.acquire() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(sql, params)
+            row = await cur.fetchone()
         if row is None:  # pragma: no cover - INSERT ... RETURNING always yields a row
             raise RuntimeError("insert returned no row")
         return row_to_job(row)
@@ -137,6 +140,7 @@ class PgJobRepository:
 
         Returns:
             A ``JobClaim``, or ``None`` when nothing is runnable.
+
         """
         sql = f"""
             UPDATE jobs SET
@@ -160,10 +164,9 @@ class PgJobRepository:
             "lease_expires_at": now + dt.timedelta(seconds=lease_seconds),
             "claimed_by": _worker_identity(),
         }
-        async with self._database.acquire() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, params)
-                row = await cur.fetchone()
+        async with self._database.acquire() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(sql, params)
+            row = await cur.fetchone()
         if row is None:
             return None
         job = row_to_job(row)
@@ -178,6 +181,7 @@ class PgJobRepository:
         Args:
             claim: Claim that executed the job.
             result: Handler result.
+
         """
         sql = """
             UPDATE jobs SET
@@ -204,6 +208,7 @@ class PgJobRepository:
             claim: Claim that executed the job.
             error: Truncated failure summary.
             next_available_at: Earliest next claim time.
+
         """
         sql = """
             UPDATE jobs SET
@@ -224,6 +229,7 @@ class PgJobRepository:
         Args:
             claim: Claim that executed the job.
             error: Truncated failure summary.
+
         """
         sql = """
             UPDATE jobs SET
@@ -243,11 +249,11 @@ class PgJobRepository:
             sql: Statement with ``WHERE id = %(id)s AND state = 'running'``.
             claim: Claim providing the job id.
             extra: Additional statement parameters.
+
         """
         params: dict[str, Any] = {"id": claim.job.id, **dict(extra)}
-        async with self._database.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(sql, params)
+        async with self._database.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(sql, params)
 
     async def get(self, job_id: str) -> Job | None:
         """Return a job by identifier.
@@ -257,12 +263,12 @@ class PgJobRepository:
 
         Returns:
             The job, or ``None`` if absent.
+
         """
         sql = f"SELECT {_JOB_COLUMNS} FROM jobs WHERE id = %(id)s"
-        async with self._database.acquire() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, {"id": job_id})
-                row = await cur.fetchone()
+        async with self._database.acquire() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(sql, {"id": job_id})
+            row = await cur.fetchone()
         return row_to_job(row) if row else None
 
     async def counts_by_state(self) -> Mapping[str, int]:
@@ -271,12 +277,12 @@ class PgJobRepository:
         Returns:
             Mapping of state name to count. States with no rows are absent rather than zero,
             because a missing key is cheaper to interpret than a misleading zero.
+
         """
         sql = "SELECT state, count(*) AS n FROM jobs GROUP BY state"
-        async with self._database.acquire() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql)
-                rows = await cur.fetchall()
+        async with self._database.acquire() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(sql)
+            rows = await cur.fetchall()
         return {str(r["state"]): int(r["n"]) for r in rows}
 
     async def dead_letter_count(self) -> int:
@@ -285,10 +291,9 @@ class PgJobRepository:
         Uses an index-only predicate so the count stays cheap as the table grows.
         """
         sql = "SELECT count(*) AS n FROM jobs WHERE state = 'dead_lettered'"
-        async with self._database.acquire() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql)
-                row = await cur.fetchone()
+        async with self._database.acquire() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(sql)
+            row = await cur.fetchone()
         return int(row["n"]) if row else 0
 
     async def oldest_pending_age_seconds(self, *, now: dt.datetime) -> float | None:
@@ -300,16 +305,16 @@ class PgJobRepository:
         Returns:
             Age in seconds, or ``None`` when nothing is pending. Uses ``MIN`` over a partial
             index on ``available_at`` rather than counting rows.
+
         """
         sql = """
             SELECT EXTRACT(EPOCH FROM (%(now)s::timestamptz - MIN(available_at))) AS age
             FROM jobs
             WHERE state IN ('pending', 'retry')
         """
-        async with self._database.acquire() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, {"now": now})
-                row = await cur.fetchone()
+        async with self._database.acquire() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(sql, {"now": now})
+            row = await cur.fetchone()
         if not row or row["age"] is None:
             return None
         return float(row["age"])

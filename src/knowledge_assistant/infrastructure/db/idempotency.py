@@ -21,7 +21,8 @@ and avoids a read-modify-write race on the expiry boundary.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from psycopg.rows import dict_row
 
@@ -47,6 +48,7 @@ def _row_to_record(row: Mapping[str, Any]) -> IdempotencyRecord:
 
     Returns:
         The mapped record.
+
     """
     return IdempotencyRecord(
         scope=IdempotencyScope(str(row["scope"])),
@@ -69,6 +71,7 @@ class PgIdempotencyStore:
 
         Args:
             database: Object exposing ``acquire()`` as an async context manager.
+
         """
         self._database = database
 
@@ -84,16 +87,16 @@ class PgIdempotencyStore:
 
         Returns:
             The record, or ``None``.
+
         """
         sql = f"""
             SELECT {_COLUMNS} FROM idempotency_keys
             WHERE tenant_id = %(tenant_id)s AND scope = %(scope)s AND key = %(key)s
         """
         params = {"tenant_id": tenant_id, "scope": scope.value, "key": key}
-        async with self._database.acquire() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, params)
-                row = await cur.fetchone()
+        async with self._database.acquire() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(sql, params)
+            row = await cur.fetchone()
         return _row_to_record(row) if row else None
 
     async def begin(
@@ -119,6 +122,7 @@ class PgIdempotencyStore:
         Returns:
             ``None`` if the caller now owns the key and should execute, or the existing record
             if another execution holds it.
+
         """
         expires_at = now + dt.timedelta(seconds=retention_seconds)
         insert_sql = """
@@ -138,15 +142,18 @@ class PgIdempotencyStore:
             "now": now,
             "expires_at": expires_at,
         }
-        async with self._database.acquire() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(insert_sql, params)
-                inserted = await cur.fetchone()
-                if inserted is not None:
-                    return None  # caller owns the key
-                select_sql = f"SELECT {_COLUMNS} FROM idempotency_keys WHERE tenant_id = %(tenant_id)s AND scope = %(scope)s AND key = %(key)s"
-                await cur.execute(select_sql, params)
-                row = await cur.fetchone()
+        async with self._database.acquire() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(insert_sql, params)
+            inserted = await cur.fetchone()
+            if inserted is not None:
+                return None  # caller owns the key
+            select_sql = (
+                f"SELECT {_COLUMNS} FROM idempotency_keys "
+                "WHERE tenant_id = %(tenant_id)s "
+                "AND scope = %(scope)s AND key = %(key)s"
+            )
+            await cur.execute(select_sql, params)
+            row = await cur.fetchone()
         if row is None:  # pragma: no cover - row deleted concurrently; treat as owned
             return None
         record = _row_to_record(row)
@@ -160,9 +167,8 @@ class PgIdempotencyStore:
     async def _delete(self, *, tenant_id: str, scope: IdempotencyScope, key: str) -> None:
         """Delete a record outright. Used only for retention expiry."""
         sql = "DELETE FROM idempotency_keys WHERE tenant_id = %s AND scope = %s AND key = %s"
-        async with self._database.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(sql, (tenant_id, scope.value, key))
+        async with self._database.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(sql, (tenant_id, scope.value, key))
 
     async def complete(
         self,
@@ -181,6 +187,7 @@ class PgIdempotencyStore:
             key: Client key.
             response_payload: Stored response or resource reference.
             now: Current time, used to extend expiry from completion rather than from start.
+
         """
         sql = """
             UPDATE idempotency_keys SET
@@ -198,9 +205,8 @@ class PgIdempotencyStore:
             "now": now,
             "expires_at": now + dt.timedelta(seconds=24 * 60 * 60),
         }
-        async with self._database.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(sql, params)
+        async with self._database.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(sql, params)
 
     async def release(self, *, tenant_id: str, scope: IdempotencyScope, key: str) -> None:
         """Release a claimed key so a client retry can re-execute.
@@ -209,14 +215,12 @@ class PgIdempotencyStore:
             tenant_id: Owning tenant.
             scope: Operation family.
             key: Client key.
+
         """
         sql = """
             DELETE FROM idempotency_keys
             WHERE tenant_id = %(tenant_id)s AND scope = %(scope)s AND key = %(key)s
               AND status = 'in_progress'
         """
-        async with self._database.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    sql, {"tenant_id": tenant_id, "scope": scope.value, "key": key}
-                )
+        async with self._database.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(sql, {"tenant_id": tenant_id, "scope": scope.value, "key": key})

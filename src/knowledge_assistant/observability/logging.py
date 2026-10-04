@@ -92,6 +92,7 @@ def _is_redacted(key: str) -> bool:
 
     Returns:
         ``True`` if the key matches the denylist.
+
     """
     lowered = key.lower()
     return any(needle in lowered for needle in REDACTED_KEYS)
@@ -105,6 +106,7 @@ def _redact_value(value: Any) -> Any:
 
     Returns:
         The value, or a truncated string if it exceeds ``MAX_VALUE_CHARS``.
+
     """
     if isinstance(value, str) and len(value) > MAX_VALUE_CHARS:
         return value[: MAX_VALUE_CHARS - 3] + "..."
@@ -123,6 +125,7 @@ def redact_processor(
 
     Returns:
         The same event dictionary, safe to serialise.
+
     """
     for key in list(event_dict.keys()):
         value = event_dict[key]
@@ -157,9 +160,10 @@ def add_required_fields(
 
     Returns:
         The event dictionary with required fields populated.
+
     """
     event_dict.setdefault("schema", SCHEMA_VERSION)
-    event_dict.setdefault("ts", dt.datetime.now(tz=dt.timezone.utc).isoformat())
+    event_dict.setdefault("ts", dt.datetime.now(tz=dt.UTC).isoformat())
     return event_dict
 
 
@@ -181,6 +185,7 @@ def configure_logging(
             the configuration layer.
         service: Service name attached to every line.
         environment: Environment name attached to every line.
+
     """
     processors: list[Any] = [
         structlog.contextvars.merge_contextvars,
@@ -219,6 +224,7 @@ def _bind_static(**kwargs: Any) -> None:
 
     Args:
         **kwargs: Static key/value pairs.
+
     """
     structlog.contextvars.bind_contextvars(**kwargs)
 
@@ -231,6 +237,7 @@ def get_logger(name: str | None = None) -> Any:
 
     Returns:
         A structlog logger.
+
     """
     return structlog.get_logger(name) if name else structlog.get_logger()
 
@@ -258,6 +265,7 @@ def bind_request(
 
     Returns:
         A logger carrying the bound context.
+
     """
     ctx: dict[str, Any] = {"request_id": request_id, "http_method": method, "http_route": path}
     if client_host:
@@ -271,6 +279,9 @@ def bind_request(
 
 
 def clear_request_context() -> None:
-    """Clear per-request context. Called at the end of a request to prevent context leaking
-    into the next request handled by the same task-local context."""
+    """Clear per-request context.
+
+    Called at the end of a request to prevent context leaking into the next request handled
+    by the same task-local context.
+    """
     structlog.contextvars.clear_contextvars()

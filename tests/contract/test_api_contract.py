@@ -34,6 +34,7 @@ def _client(probes: list[Any], **app_kwargs: Any) -> Any:
 
     Returns:
         An ``httpx.AsyncClient`` over an ASGI transport.
+
     """
     import httpx  # noqa: PLC0415
 
@@ -55,14 +56,16 @@ class TestPublicEndpoints:
 
     async def test_healthz_is_ok(self) -> None:
         """Liveness must not depend on PostgreSQL. If it did, a database blip would restart
-        every API process - converting a recoverable dependency failure into a crash loop."""
+        every API process - converting a recoverable dependency failure into a crash loop.
+        """
         async with _client([FakeProbe("postgres", raises=RuntimeError("db down"))]) as client:
             response = await client.get("/healthz")
         assert response.status_code == 200
 
     async def test_healthz_body_is_minimal(self) -> None:
         """Liveness reports process state plus public identity. Dependency detail belongs on
-        /readyz, where a failure is at least partly attributable to a named dependency."""
+        /readyz, where a failure is at least partly attributable to a named dependency.
+        """
         async with _client([FakeProbe("postgres")]) as client:
             body = (await client.get("/healthz")).json()
         assert body["status"] == "ok"
@@ -85,7 +88,8 @@ class TestPublicEndpoints:
 
     async def test_readyz_reports_degradation_without_removing_the_instance(self) -> None:
         """An advisory failure must not cause the load balancer to stop routing here: doing so
-        would reduce capacity for a problem that does not affect serving."""
+        would reduce capacity for a problem that does not affect serving.
+        """
         async with _client(
             [
                 FakeProbe("postgres"),
@@ -111,7 +115,8 @@ class TestPublicEndpoints:
 
     async def test_version_exposes_no_configuration(self) -> None:
         """An allow-list, not a filtered dump: a filtered dump leaks whatever the next commit
-        forgets to classify."""
+        forgets to classify.
+        """
         async with _client([FakeProbe("postgres")]) as client:
             body = (await client.get("/version")).text
         for fragment in ("postgres://", "password", "dsn", "pool"):
@@ -123,7 +128,8 @@ class TestAuthenticationBoundary:
 
     async def test_unknown_path_is_denied(self) -> None:
         """Failing closed means an unimplemented endpoint is invisible rather than open. The
-        alternative - 404 - would confirm the service exists and is worth probing further."""
+        alternative - 404 - would confirm the service exists and is worth probing further.
+        """
         async with _client([FakeProbe("postgres")]) as client:
             response = await client.get("/documents")
         assert response.status_code == 403
@@ -145,7 +151,7 @@ class TestAuthenticationBoundary:
         """If this set drifts from the documentation, the documentation is wrong."""
         from knowledge_assistant.interfaces.http.middleware import PUBLIC_PATHS  # noqa: PLC0415
 
-        assert PUBLIC_PATHS == frozenset({"/healthz", "/readyz", "/version", "/metrics"})
+        assert frozenset({"/healthz", "/readyz", "/version", "/metrics"}) == PUBLIC_PATHS
 
 
 class TestProblemDetails:
@@ -159,15 +165,17 @@ class TestProblemDetails:
 
     async def test_no_stack_trace_in_error_body(self) -> None:
         """A traceback in a response body is an information-disclosure vulnerability: it
-        discloses file layout, library versions and usually credentials in connection args."""
+        discloses file layout, library versions and usually credentials in connection args.
+        """
         async with _client([FakeProbe("postgres")]) as client:
             body = (await client.get("/documents")).text
-        for fragment in ("Traceback", "File \"", "site-packages", ".py\", line "):
+        for fragment in ("Traceback", 'File "', "site-packages", '.py", line '):
             assert fragment not in body
 
     async def test_probe_failure_does_not_leak_the_dsn(self) -> None:
         """The concrete attack: unauthenticated /readyz plus a misconfigured DSN prints the
-        database password to anyone who asks."""
+        database password to anyone who asks.
+        """
         secret = "sup3rs3cret"
         probe = FakeProbe(
             "postgres", raises=RuntimeError(f"connection to db failed: password={secret}")
@@ -188,14 +196,16 @@ class TestRequestIdentityAndHeaders:
 
     async def test_client_supplied_request_id_is_preserved(self) -> None:
         """A caller's correlation id must survive, or cross-system tracing breaks at our
-        boundary."""
+        boundary.
+        """
         async with _client([FakeProbe("postgres")]) as client:
             response = await client.get("/healthz", headers={"X-Request-ID": "caller-request-1"})
         assert response.headers["x-request-id"] == "caller-request-1"
 
     async def test_absurd_request_id_is_replaced_not_reflected(self) -> None:
         """Reflecting an unbounded client string into logs and responses is an injection and
-        volume vector."""
+        volume vector.
+        """
         async with _client([FakeProbe("postgres")]) as client:
             response = await client.get("/healthz", headers={"X-Request-ID": "x" * 5000})
         assert response.status_code == 200
@@ -243,7 +253,8 @@ class TestInputLimits:
 
     async def test_oversized_body_is_rejected_before_auth(self) -> None:
         """Size checking first means a huge upload is refused without touching the
-        authorisation path - cheaper and easier to reason about."""
+        authorisation path - cheaper and easier to reason about.
+        """
         async with _client([FakeProbe("postgres")], max_body_bytes=2048) as client:
             response = await client.post("/secret", content=b"x" * 4096)
         assert response.status_code == 413
@@ -264,6 +275,7 @@ class TestOpenApiDocument:
 
         Returns:
             The specification as a mapping.
+
         """
         from knowledge_assistant.config.settings import Settings  # noqa: PLC0415
 
@@ -274,7 +286,9 @@ class TestOpenApiDocument:
             database_url="postgresql://t:t@localhost/ka",
             service_name="ka-contract",
         )
-        app = make_app(probes=[FakeProbe("postgres")], clock=FixedClock(TEST_EPOCH), settings=settings)
+        app = make_app(
+            probes=[FakeProbe("postgres")], clock=FixedClock(TEST_EPOCH), settings=settings
+        )
         return app.openapi()
 
     def test_document_is_valid(self) -> None:
@@ -284,7 +298,8 @@ class TestOpenApiDocument:
 
     def test_documented_paths_match_the_implemented_surface(self) -> None:
         """Only the foundation endpoints may exist. A business endpoint appearing here would
-        mean Phase 2 leaked into Phase 1."""
+        mean Phase 2 leaked into Phase 1.
+        """
         assert set(self._document()["paths"]) == {"/healthz", "/readyz", "/version"}
 
     def test_document_is_json_serialisable(self) -> None:
@@ -292,14 +307,16 @@ class TestOpenApiDocument:
 
     async def test_spec_is_not_publicly_served(self) -> None:
         """Failing closed applies to the specification too; otherwise the gate is a
-        speed bump for reconnaissance rather than a boundary."""
+        speed bump for reconnaissance rather than a boundary.
+        """
         async with _client([FakeProbe("postgres")]) as client:
             response = await client.get("/openapi.json")
         assert response.status_code == 403
 
     def test_committed_spec_matches_the_generated_one(self) -> None:
         """The contract-drift gate. Without a committed artefact there is nothing to diff and
-        'detect accidental API changes' is a promise rather than a control."""
+        'detect accidental API changes' is a promise rather than a control.
+        """
         import pathlib  # noqa: PLC0415
 
         committed = pathlib.Path("docs/07-api/openapi.json")
@@ -314,7 +331,8 @@ class TestProbeReporting:
 
     async def test_probe_names_are_reported(self) -> None:
         """Operators use /readyz as the first diagnostic step; unnamed probes are useless
-        for that."""
+        for that.
+        """
         async with _client([FakeProbe("postgres"), FakeProbe("queue")]) as client:
             body = (await client.get("/readyz")).json()
         names = [p["name"] for p in body["probes"]]

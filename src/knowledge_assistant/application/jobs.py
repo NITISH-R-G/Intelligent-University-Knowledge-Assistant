@@ -31,6 +31,8 @@ from knowledge_assistant.domain.jobs import (
     DEFAULT_MAX_ATTEMPTS,
     MAX_ATTEMPTS_CEILING,
     FailureClass,
+    Job,
+    JobClaim,
     classify_failure,
     next_attempt_at,
     should_retry,
@@ -51,6 +53,7 @@ def _summarise_error(exc: BaseException) -> str:
 
     Returns:
         Truncated ``type: message`` string, newline-collapsed and length-bounded.
+
     """
     message = " ".join(str(exc).split())
     text = f"{type(exc).__name__}: {message}" if message else type(exc).__name__
@@ -64,13 +67,20 @@ class SubmitJob:
 
     __slots__ = ("_jobs", "_clock", "_max_attempts")
 
-    def __init__(self, jobs: JobRepositoryPort, *, clock: Clock, max_attempts: int | None = None) -> None:
+    def __init__(
+        self,
+        jobs: JobRepositoryPort,
+        *,
+        clock: Clock,
+        max_attempts: int | None = None,
+    ) -> None:
         """Build the use case.
 
         Args:
             jobs: Job repository.
             clock: Injected time source.
             max_attempts: Default attempt ceiling, clamped to ``MAX_ATTEMPTS_CEILING``.
+
         """
         self._jobs = jobs
         self._clock = clock
@@ -100,6 +110,7 @@ class SubmitJob:
 
         Raises:
             ValidationError: If ``job_type`` is blank or ``delay_seconds`` is negative.
+
         """
         if not job_type or not job_type.strip():
             msg = "job_type must be a non-empty string"
@@ -113,20 +124,26 @@ class SubmitJob:
             raise ValidationError(msg, detail={"field": "max_attempts"})
         now = self._clock.now()
         available_at = now + dt.timedelta(seconds=delay_seconds)
-        job = await self._jobs.enqueue(
+        return await self._jobs.enqueue(
             job_type=job_type,
             payload=dict(payload or {}),
             available_at=available_at,
             max_attempts=attempts,
             idempotency_key=idempotency_key,
         )
-        return job
 
 
 class JobExecutorOutcome:
     """Result of attempting one job. Returned for logging and metrics, never to a client."""
 
-    __slots__ = ("job_id", "outcome", "state", "attempts_used", "failure_class", "next_available_at")
+    __slots__ = (
+        "job_id",
+        "outcome",
+        "state",
+        "attempts_used",
+        "failure_class",
+        "next_available_at",
+    )
 
     def __init__(
         self,
@@ -154,7 +171,15 @@ class JobExecutorOutcome:
 class ExecuteJobOnce:
     """Claim one job, execute it, and settle the outcome."""
 
-    __slots__ = ("_jobs", "_clock", "_handlers", "_lease_seconds", "_backoff_base", "_backoff_cap", "_jitter_ratio")
+    __slots__ = (
+        "_jobs",
+        "_clock",
+        "_handlers",
+        "_lease_seconds",
+        "_backoff_base",
+        "_backoff_cap",
+        "_jitter_ratio",
+    )
 
     def __init__(
         self,
@@ -178,6 +203,7 @@ class ExecuteJobOnce:
             backoff_base_seconds: First retry delay.
             backoff_cap_seconds: Retry delay ceiling.
             jitter_ratio: Jitter fraction applied to retry delays.
+
         """
         self._jobs = jobs
         self._handlers = dict(handlers)
@@ -198,6 +224,7 @@ class ExecuteJobOnce:
             ``None`` when no job was claimable, otherwise the outcome. Never raises for a job
             failure: failures are settled onto the job. Raises only if the repository itself
             fails, because then we hold no claim and cannot settle anything.
+
         """
         now = self._clock.now()
         claim = await self._jobs.claim_next(now=now, lease_seconds=self._lease_seconds)
@@ -213,6 +240,7 @@ class ExecuteJobOnce:
 
         Returns:
             The outcome record.
+
         """
         job = claim.job
         handler = self._handlers.get(job.type)
@@ -256,6 +284,7 @@ class ExecuteJobOnce:
 
         Returns:
             The outcome record.
+
         """
         job = claim.job
         failure_class = classify_failure(exc)

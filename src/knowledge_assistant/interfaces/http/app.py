@@ -90,6 +90,7 @@ def build_health_router(health: HealthService, *, service_name: str) -> APIRoute
 
     Returns:
         An ``APIRouter`` exposing ``/healthz`` and ``/readyz``.
+
     """
     router = APIRouter(tags=["health"])
 
@@ -107,6 +108,7 @@ def build_health_router(health: HealthService, *, service_name: str) -> APIRoute
 
         Returns:
             A 200 response while the process can serve requests.
+
         """
         return HealthResponse(status="ok", service=service_name, version=SERVICE_VERSION)
 
@@ -125,6 +127,7 @@ def build_health_router(health: HealthService, *, service_name: str) -> APIRoute
         Returns:
             200 with the report when ready, 503 with the same body when not. The body shape is
             identical in both cases so a client never has to branch on parsing.
+
         """
         report = await health.report()
         body = ReadinessResponse(
@@ -154,6 +157,7 @@ def build_meta_router(*, settings_public: dict[str, Any]) -> APIRouter:
 
     Returns:
         An ``APIRouter`` exposing ``/version``.
+
     """
     router = APIRouter(tags=["meta"])
 
@@ -167,6 +171,7 @@ def build_meta_router(*, settings_public: dict[str, Any]) -> APIRouter:
 
         Returns:
             Service name, version and the public configuration summary.
+
         """
         return {"version": SERVICE_VERSION, **settings_public}
 
@@ -189,6 +194,7 @@ def register_middleware(
         app: Application to instrument.
         max_body_bytes: Request body size limit.
         metrics: Optional metrics facade for the access log.
+
     """
     app.add_middleware(AuthenticationBoundaryMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
@@ -222,6 +228,7 @@ def create_app(
 
     Returns:
         A configured ``FastAPI`` instance.
+
     """
     app = FastAPI(
         title="Intelligent University Knowledge Assistant",
@@ -247,6 +254,7 @@ def create_app(
 
         Returns:
             A short string describing where to look. Deliberately not a landing page.
+
         """
         return {"service": service_name, "docs": "/docs", "health": "/healthz", "ready": "/readyz"}
 
@@ -258,5 +266,6 @@ def probe_status_values() -> list[str]:
 
     Returns:
         Sorted status strings.
+
     """
     return sorted(s.value for s in ProbeStatus)

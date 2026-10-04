@@ -21,7 +21,6 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from knowledge_assistant.application.ports import HealthProbePort
 from knowledge_assistant.domain.health import ProbeCriticality, ProbeResult, ProbeStatus
 
 __all__ = ["DatabaseProbe", "JobQueueProbe", "StaticProbe"]
@@ -41,6 +40,7 @@ class DatabaseProbe:
         Args:
             database: Object exposing ``acquire()``.
             clock: Injected time source.
+
         """
         self._database = database
         self._clock = clock
@@ -61,11 +61,11 @@ class DatabaseProbe:
         Returns:
             A probe result. Exceptions are allowed to propagate; the use case converts them,
             which keeps this adapter free of error-classification logic.
+
         """
-        async with self._database.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT 1")
-                await cur.fetchone()
+        async with self._database.acquire() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT 1")
+            await cur.fetchone()
         return ProbeResult(
             name=self.name,
             status=ProbeStatus.OK,
@@ -91,6 +91,7 @@ class JobQueueProbe:
         Args:
             jobs: Job repository.
             clock: Injected time source.
+
         """
         self._jobs = jobs
         self._clock = clock
@@ -111,6 +112,7 @@ class JobQueueProbe:
         Returns:
             A probe result. A non-empty dead-letter queue means work that will never complete
             unattended, which is a real degradation even though the queue is reachable.
+
         """
         now: dt.datetime = self._clock.now()
         dead_letters = await self._jobs.dead_letter_count()
@@ -152,6 +154,7 @@ class StaticProbe:
             detail: Fixed detail string. Must not disclose infrastructure internals.
             criticality: Whether the probe gates readiness.
             clock: Injected time source.
+
         """
         self._name = name
         self._status = status

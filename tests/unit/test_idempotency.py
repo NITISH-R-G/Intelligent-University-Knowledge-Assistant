@@ -48,6 +48,7 @@ def _record(
 
     Returns:
         An ``IdempotencyRecord``.
+
     """
     return IdempotencyRecord(
         scope=IdempotencyScope.JOB_SUBMIT,
@@ -76,7 +77,8 @@ class TestDecisionTable:
 
     def test_in_progress_matching_fingerprint_conflicts(self) -> None:
         """The second concurrent caller must be told to retry, not to wait behind a held
-        connection: queueing duplicates is how a slow operation becomes an outage."""
+        connection: queueing duplicates is how a slow operation becomes an outage.
+        """
         decision = decide_replay(
             _record(status=IdempotencyStatus.IN_PROGRESS),
             request_fingerprint="fp-1",
@@ -105,7 +107,8 @@ class TestDecisionTable:
 
     def test_expiry_beats_status_and_fingerprint(self) -> None:
         """Ordering matters: an expired record must not block a legitimate retry even if it
-        is still marked in-progress, or a crashed request wedges its key forever."""
+        is still marked in-progress, or a crashed request wedges its key forever.
+        """
         decision = decide_replay(
             _record(
                 status=IdempotencyStatus.IN_PROGRESS,
@@ -127,14 +130,16 @@ class TestScopedKey:
 
     def test_two_tenants_same_key_differ(self) -> None:
         """Without the tenant in the key, tenant B replaying tenant A's request would return
-        tenant A's document. That is a cross-tenant data leak, not a cache miss."""
+        tenant A's document. That is a cross-tenant data leak, not a cache miss.
+        """
         a = scoped_key("tenant-a", IdempotencyScope.JOB_SUBMIT, KEY)
         b = scoped_key("tenant-b", IdempotencyScope.JOB_SUBMIT, KEY)
         assert a != b
 
     def test_two_scopes_same_key_differ(self) -> None:
         """A client that reuses one key across operations must not get the previous
-        operation's response back."""
+        operation's response back.
+        """
         a = scoped_key("tenant-a", IdempotencyScope.JOB_SUBMIT, KEY)
         b = scoped_key("tenant-a", IdempotencyScope.DOCUMENT_UPLOAD, KEY)
         assert a != b
@@ -208,7 +213,8 @@ class TestIdempotentExecutor:
 
     async def test_concurrent_duplicates_run_the_operation_once(self, idempotent_executor) -> None:  # noqa: ANN001
         """The realistic race: a client double-submits because the first response was slow.
-        Exactly one caller may perform the side effect; the other must be rejected."""
+        Exactly one caller may perform the side effect; the other must be rejected.
+        """
         calls: list[str] = []
         gate = asyncio.Event()
 
@@ -247,9 +253,12 @@ class TestIdempotentExecutor:
         assert isinstance(second_outcome, ConflictError)
         assert first_outcome == ({"job_id": "job-1"}, False)
 
-    async def test_failed_request_releases_the_key_for_a_genuine_retry(self, idempotent_executor) -> None:  # noqa: ANN001
+    async def test_failed_request_releases_the_key_for_a_genuine_retry(
+        self, idempotent_executor
+    ) -> None:  # noqa: ANN001
         """If a failure kept the key claimed, every client retry after a transient error
-        would be permanently rejected and the operation could never succeed."""
+        would be permanently rejected and the operation could never succeed.
+        """
 
         async def failing() -> dict[str, str]:
             raise RuntimeError("dependency down")
@@ -280,9 +289,12 @@ class TestIdempotentExecutor:
         assert replayed is False
         assert len(calls) == 1
 
-    async def test_retry_after_failure_re_executes_rather_than_replaying_error(self, idempotent_executor) -> None:  # noqa: ANN001
+    async def test_retry_after_failure_re_executes_rather_than_replaying_error(
+        self, idempotent_executor
+    ) -> None:  # noqa: ANN001
         """A failure must never be recorded as a completed outcome: replaying a stored
-        failure would turn one transient error into a permanently failing endpoint."""
+        failure would turn one transient error into a permanently failing endpoint.
+        """
 
         async def failing() -> dict[str, str]:
             raise RuntimeError("boom")
@@ -301,9 +313,12 @@ class TestIdempotentExecutor:
         record = await store.get(tenant_id="t1", scope=IdempotencyScope.JOB_SUBMIT, key=KEY)
         assert record is None, "a failed operation must leave no claim behind"
 
-    async def test_expired_record_is_re_executed(self, clock: FixedClock, idempotency_store) -> None:  # noqa: ANN001
+    async def test_expired_record_is_re_executed(
+        self, clock: FixedClock, idempotency_store
+    ) -> None:  # noqa: ANN001
         """Retention is finite; after it, the same key must run again rather than replay a
-        stale response forever."""
+        stale response forever.
+        """
         from knowledge_assistant.application.idempotency import IdempotentExecutor  # noqa: PLC0415
 
         executor = IdempotentExecutor(idempotency_store, clock=clock, retention_seconds=60)
@@ -332,9 +347,12 @@ class TestIdempotentExecutor:
         assert result == {"n": "2"}
         assert len(calls) == 2
 
-    async def test_key_order_in_payload_does_not_change_fingerprint(self, idempotent_executor) -> None:  # noqa: ANN001
+    async def test_key_order_in_payload_does_not_change_fingerprint(
+        self, idempotent_executor
+    ) -> None:  # noqa: ANN001
         """JSON key order is an encoding detail, not a different request. If it mattered,
-        a client whose serialiser reordered keys would get spurious conflicts."""
+        a client whose serialiser reordered keys would get spurious conflicts.
+        """
 
         async def operation() -> dict[str, str]:
             return {"job_id": "job-1"}

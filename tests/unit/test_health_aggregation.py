@@ -43,6 +43,7 @@ def _result(
 
     Returns:
         A ``ProbeResult``.
+
     """
     return ProbeResult(
         name=name,
@@ -61,23 +62,21 @@ class TestAggregationRules:
 
     def test_critical_failure_blocks_readiness(self) -> None:
         """A dead database must take the instance out of rotation, not return 200."""
-        report = aggregate(
-            [_result("postgres", ProbeStatus.FAILED)], now=dt.datetime.now(tz=UTC)
-        )
+        report = aggregate([_result("postgres", ProbeStatus.FAILED)], now=dt.datetime.now(tz=UTC))
         assert report.ready is False
         assert report.degraded is False
 
     def test_critical_degraded_also_blocks_readiness(self) -> None:
         """Serving traffic onto a degraded critical dependency converts a partial failure
-        into user-visible errors, so DEGRADED is treated as not-ready for CRITICAL probes."""
-        report = aggregate(
-            [_result("postgres", ProbeStatus.DEGRADED)], now=dt.datetime.now(tz=UTC)
-        )
+        into user-visible errors, so DEGRADED is treated as not-ready for CRITICAL probes.
+        """
+        report = aggregate([_result("postgres", ProbeStatus.DEGRADED)], now=dt.datetime.now(tz=UTC))
         assert report.ready is False
 
     def test_advisory_failure_degrades_without_blocking(self) -> None:
         """A degraded advisory dependency must not pull the instance out of rotation:
-        the service can still serve, and removing it reduces capacity for no benefit."""
+        the service can still serve, and removing it reduces capacity for no benefit.
+        """
         report = aggregate(
             [_result("object_store", ProbeStatus.FAILED, ProbeCriticality.ADVISORY)],
             now=dt.datetime.now(tz=UTC),
@@ -97,14 +96,13 @@ class TestAggregationRules:
 
     def test_empty_probe_set_is_ready(self) -> None:
         """A service with no declared dependencies legitimately has no probes; refusing
-        readiness would make it permanently unrouteable."""
+        readiness would make it permanently unrouteable.
+        """
         assert aggregate([], now=dt.datetime.now(tz=UTC)).ready is True
 
     def test_probe_order_is_preserved(self) -> None:
         """Stable output order keeps the readiness payload diffable between releases."""
-        report = aggregate(
-            [_result("b"), _result("a"), _result("c")], now=dt.datetime.now(tz=UTC)
-        )
+        report = aggregate([_result("b"), _result("a"), _result("c")], now=dt.datetime.now(tz=UTC))
         assert [p.name for p in report.probes] == ["b", "a", "c"]
 
 
@@ -136,7 +134,8 @@ class TestSafeProbeDetail:
         self, exc_type: type[BaseException], message: str, secrets: tuple[str, ...]
     ) -> None:
         """A driver exception embeds host, port, user, database and sometimes SQL. Only the
-        exception class name is emitted."""
+        exception class name is emitted.
+        """
         detail = safe_probe_detail(exc_type(message))
         assert detail == f"failed:{exc_type.__name__.lower()}"
         for secret in secrets:
@@ -174,7 +173,8 @@ class TestHealthService:
     async def test_probe_set_timeout_marks_not_ready(self) -> None:
         """A hung dependency must surface as not-ready within the budget, not as a hung
         health endpoint: an orchestrator that cannot get an answer eventually kills a healthy
-        process and restarts it, which turns a slow database into a crash loop."""
+        process and restarts it, which turns a slow database into a crash loop.
+        """
         clock = FixedClock(dt.datetime(2026, 3, 1, 12, 0, tzinfo=UTC))
         service = HealthService(
             [FakeProbe("slow", delay_seconds=0.5)], clock=clock, timeout_seconds=0.05
@@ -185,7 +185,8 @@ class TestHealthService:
 
     async def test_probes_run_concurrently_not_in_series(self) -> None:
         """Series execution would make the readiness budget the sum of all probe latencies.
-        Five probes at 100 ms each would be a 500 ms health check."""
+        Five probes at 100 ms each would be a 500 ms health check.
+        """
         clock = FixedClock(dt.datetime(2026, 3, 1, 12, 0, tzinfo=UTC))
         probes = [FakeProbe(f"p{i}", delay_seconds=0.1) for i in range(5)]
         service = HealthService(probes, clock=clock, timeout_seconds=2.0)

@@ -8,6 +8,7 @@ reproducing case that goes straight into a regression test.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 
 import pytest
@@ -30,24 +31,24 @@ from knowledge_assistant.domain.identifiers import (
 )
 from knowledge_assistant.domain.jobs import (
     FailureClass,
-    base_delay_seconds,
+    JobState,
     apply_jitter,
-    classify_failure,
+    assert_transition_allowed,
+    base_delay_seconds,
     should_retry,
 )
-from knowledge_assistant.domain.jobs import JobState, assert_transition_allowed
 
 pytestmark = pytest.mark.property
 
 EPOCH = dt.datetime(2026, 3, 1, tzinfo=UTC)
 
-POSITIVE_FLOATS = st.floats(min_value=1e-6, max_value=86400.0, allow_nan=False, allow_infinity=False)
+POSITIVE_FLOATS = st.floats(
+    min_value=1e-6, max_value=86400.0, allow_nan=False, allow_infinity=False
+)
 ATTEMPTS = st.integers(min_value=1, max_value=10**6)
 
 #: The idempotency-key alphabet from ``domain.identifiers``: URL-safe ASCII only.
-KEY_ALPHABET = st.sampled_from(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._~-"
-)
+KEY_ALPHABET = st.sampled_from("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._~-")
 
 
 class TestBackoffProperties:
@@ -69,7 +70,8 @@ class TestBackoffProperties:
     @settings(max_examples=200, deadline=None)
     def test_delay_is_monotonic_in_attempt(self, attempt: int, base: float) -> None:
         """Each retry must wait longer than the last; a non-monotonic delay would send a
-        worker back to a problem it already decided to wait out."""
+        worker back to a problem it already decided to wait out.
+        """
         assume(attempt < 10**6 - 1)
         current = base_delay_seconds(attempt, base_seconds=base, cap_seconds=86400.0)
         following = base_delay_seconds(attempt + 1, base_seconds=base, cap_seconds=86400.0)
@@ -124,7 +126,9 @@ class TestRetryPolicyProperties:
         failure=st.sampled_from(list(FailureClass)),
     )
     @settings(max_examples=200, deadline=None)
-    def test_retries_are_bounded(self, attempts_used: int, max_attempts: int, failure: FailureClass) -> None:
+    def test_retries_are_bounded(
+        self, attempts_used: int, max_attempts: int, failure: FailureClass
+    ) -> None:
         """No combination of inputs may produce an unbounded retry decision."""
         decision = should_retry(
             attempts_used=attempts_used,
@@ -137,9 +141,7 @@ class TestRetryPolicyProperties:
     @settings(max_examples=50, deadline=None)
     def test_permanent_failures_are_never_retried(self, failure: FailureClass) -> None:
         if failure is FailureClass.PERMANENT:
-            assert (
-                should_retry(attempts_used=1, max_attempts=10, failure_class=failure) is False
-            )
+            assert should_retry(attempts_used=1, max_attempts=10, failure_class=failure) is False
 
 
 class TestStateMachineProperties:
@@ -151,7 +153,8 @@ class TestStateMachineProperties:
     @settings(max_examples=200, deadline=None)
     def test_terminal_states_have_no_successors(self, source: JobState, target: JobState) -> None:
         """Once a job is succeeded or dead-lettered it must be immutable; otherwise a late
-        worker can overwrite a correct outcome."""
+        worker can overwrite a correct outcome.
+        """
         if source in (JobState.SUCCEEDED, JobState.DEAD_LETTERED):
             with pytest.raises(ValueError):
                 assert_transition_allowed(source, target)
@@ -160,10 +163,8 @@ class TestStateMachineProperties:
     @settings(max_examples=50, deadline=None)
     def test_self_transition_is_never_an_implicit_advance(self, source: JobState) -> None:
         """Every state either allows staying put or raises; nothing is ambiguous."""
-        try:
+        with contextlib.suppress(ValueError):
             assert_transition_allowed(source, source)
-        except ValueError:
-            pass
 
 
 class TestIdempotencyKeyProperties:
@@ -200,7 +201,8 @@ class TestIdempotencyKeyProperties:
     @settings(max_examples=100, deadline=None)
     def test_short_keys_are_rejected(self, value: str) -> None:
         """The minimum length is not decoration: a one-character key would collide under any
-        real client key scheme."""
+        real client key scheme.
+        """
         assume(len(value) < 16)
         assert not is_valid_idempotency_key(value)
 
@@ -208,7 +210,8 @@ class TestIdempotencyKeyProperties:
     @settings(max_examples=200, deadline=None)
     def test_non_ascii_keys_are_rejected(self, value: str) -> None:
         """The key reaches a URL, a log line and a database column. Restricting it to a
-        URL-safe ASCII set removes three separate injection surfaces at once."""
+        URL-safe ASCII set removes three separate injection surfaces at once.
+        """
         if not value.isascii() and is_valid_idempotency_key(value):
             pytest.fail(f"non-ASCII key accepted: {value!r}")
 
@@ -244,7 +247,9 @@ class TestFingerprintProperties:
         right=st.dictionaries(st.text(min_size=1, max_size=20), st.integers(), max_size=6),
     )
     @settings(max_examples=300, deadline=None)
-    def test_different_payloads_differ(self, left: dict[str, object], right: dict[str, object]) -> None:
+    def test_different_payloads_differ(
+        self, left: dict[str, object], right: dict[str, object]
+    ) -> None:
         assume(left != right)
         assert fingerprint(left) != fingerprint(right)
 
@@ -266,7 +271,8 @@ class TestErrorContextProperties:
     @settings(max_examples=300, deadline=None)
     def test_arbitrary_context_is_filtered(self, key: str, value: str) -> None:
         """Validation errors allow only 'field' and 'violations'; anything else an operator
-        attaches must be dropped before it can reach a client."""
+        attaches must be dropped before it can reach a client.
+        """
         error = ValidationError("m", detail={key: value})
         public = error.public_context()
         assert set(public) <= {"field", "violations"}
@@ -295,7 +301,9 @@ class TestHealthAggregationProperties:
         )
     )
     @settings(max_examples=200, deadline=None)
-    def test_ready_iff_no_critical_probe_is_unhealthy(self, probes: list[tuple[object, object]]) -> None:
+    def test_ready_iff_no_critical_probe_is_unhealthy(
+        self, probes: list[tuple[object, object]]
+    ) -> None:
         """Readiness is a pure function of the probe set, not of evaluation order."""
         results = [
             ProbeResult(
@@ -342,6 +350,9 @@ class TestHealthAggregationProperties:
     def test_probe_name_is_preserved(self, name: str) -> None:
         """Operators diagnose by probe name; losing it makes readiness output useless."""
         result = ProbeResult(
-            name=name, status=ProbeStatus.OK, criticality=ProbeCriticality.CRITICAL, checked_at=EPOCH
+            name=name,
+            status=ProbeStatus.OK,
+            criticality=ProbeCriticality.CRITICAL,
+            checked_at=EPOCH,
         )
         assert aggregate([result], now=EPOCH).probes[0].name == name

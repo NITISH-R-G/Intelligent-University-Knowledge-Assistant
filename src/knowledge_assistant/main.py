@@ -26,6 +26,7 @@ def main() -> int:
 
     Returns:
         ``0`` on clean shutdown, ``2`` on configuration failure.
+
     """
     try:
         settings = load_settings()

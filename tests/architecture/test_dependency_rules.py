@@ -28,6 +28,7 @@ def _module_files() -> list[Path]:
 
     Returns:
         Sorted list of ``.py`` paths under the package root.
+
     """
     return sorted(p for p in SRC.rglob("*.py") if "__pycache__" not in p.parts)
 
@@ -40,6 +41,7 @@ def _imports(path: Path) -> list[tuple[str, int]]:
 
     Returns:
         List of ``(module, level)`` pairs as written in the source.
+
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     found: list[tuple[str, int]] = []
@@ -59,6 +61,7 @@ def _first_party_root(module: str) -> str | None:
 
     Returns:
         The subpackage name, or ``None`` if the module is not first-party.
+
     """
     prefix = "knowledge_assistant."
     if not module.startswith(prefix):
@@ -73,7 +76,8 @@ class TestRuleDomainIsPure:
     def test_domain_imports_no_first_party_sibling(self) -> None:
         """Infrastructure leaking into the domain is the failure this project exists to
         prevent: once the domain knows about psycopg, retry policy can no longer be tested
-        without a database, and the core becomes untestable in a fast lane."""
+        without a database, and the core becomes untestable in a fast lane.
+        """
         domain_dir = SRC / "domain"
         for path in sorted(domain_dir.rglob("*.py")):
             for module, _level in _imports(path):
@@ -82,7 +86,8 @@ class TestRuleDomainIsPure:
 
     def test_domain_imports_no_third_party_library(self) -> None:
         """pydantic, fastapi and psycopg are all banned here. This is the rule that keeps the
-        core explainable in one sitting."""
+        core explainable in one sitting.
+        """
         banned = {"fastapi", "starlette", "psycopg", "pydantic", "pydantic_settings", "structlog"}
         for path in _module_files():
             if "domain" not in path.parts:
@@ -102,7 +107,8 @@ class TestRuleApplicationDoesNotDependOnInfrastructure:
 
     def test_application_imports_no_infrastructure(self) -> None:
         """A use case that imports psycopg directly cannot be unit tested without a
-        database, which is how 'just this one query' turns into a slow suite."""
+        database, which is how 'just this one query' turns into a slow suite.
+        """
         for path in _module_files():
             if "application" not in path.parts:
                 continue
@@ -118,7 +124,8 @@ class TestRuleApplicationDoesNotDependOnInfrastructure:
 
     def test_ports_are_protocols_not_concrete_classes(self) -> None:
         """Ports are defined as Protocols so an adapter can be replaced without editing the
-        port, and so the boundary is checkable without importing the adapter."""
+        port, and so the boundary is checkable without importing the adapter.
+        """
         source = (SRC / "application" / "ports.py").read_text(encoding="utf-8")
         assert source.count("Protocol") >= 3
 
@@ -138,7 +145,8 @@ class TestRuleInfrastructureDependsInward:
 
     def test_no_module_outside_infrastructure_imports_the_database_adapter(self) -> None:
         """Only the composition root may know how the database is reached. If a use case can
-        import the adapter, the port is decorative."""
+        import the adapter, the port is decorative.
+        """
         allowed = {"container.py", "lifespan.py", "interfaces", "workers"}
         for path in _module_files():
             if "infrastructure" in path.parts or path.name in allowed:
@@ -172,7 +180,8 @@ class TestRuleObservabilityStaysIndependent:
 
     def test_observability_does_not_import_config(self) -> None:
         """Logging that imports the config layer inverts the dependency and makes the
-        logging module untestable without a valid environment."""
+        logging module untestable without a valid environment.
+        """
         for path in _module_files():
             if "observability" not in path.parts:
                 continue
@@ -192,11 +201,16 @@ class TestRuleWiringIsTheOnlyPlaceThatKnowsEverything:
 
     def test_only_container_imports_the_adapters(self) -> None:
         """If several modules import adapters, the graph has no single wiring point and
-        'which dependencies does this request actually need' has no answer."""
+        'which dependencies does this request actually need' has no answer.
+        """
         for path in _module_files():
             if path.name in {"container.py", "lifespan.py", "main.py", "worker_main.py"}:
                 continue
-            if "interfaces" in path.parts or "infrastructure" in path.parts or "workers" in path.parts:
+            if (
+                "interfaces" in path.parts
+                or "infrastructure" in path.parts
+                or "workers" in path.parts
+            ):
                 continue
             for module, _level in _imports(path):
                 assert not module.startswith("knowledge_assistant.infrastructure.db"), (
@@ -231,7 +245,8 @@ class TestNoSpeculativeSurface:
 
     def test_no_forbidden_module_names(self) -> None:
         """The absence is asserted, not assumed. Phase creep is easiest to prevent at the
-        moment it is first written."""
+        moment it is first written.
+        """
         offenders = [
             p.as_posix()
             for p in _module_files()
@@ -258,11 +273,14 @@ class TestArchitectureCheckerAgrees:
 
     def test_checker_reports_no_violations(self) -> None:
         """CI runs the checker as its own stage; this test makes the failure visible locally
-        too."""
+        too.
+        """
         import importlib.util  # noqa: PLC0415
         import sys  # noqa: PLC0415
 
-        spec = importlib.util.spec_from_file_location("check_architecture", "scripts/check_architecture.py")
+        spec = importlib.util.spec_from_file_location(
+            "check_architecture", "scripts/check_architecture.py"
+        )
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
         sys.modules["check_architecture"] = module

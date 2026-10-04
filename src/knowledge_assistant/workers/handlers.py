@@ -60,6 +60,7 @@ async def echo_handler(payload: Mapping[str, Any], ctx: Any) -> Mapping[str, Any
         The payload plus ``job_id``, ``attempt`` and ``handled_at`` (from the injected clock,
         via the context's absence: the handler has no clock, so it reports no timestamp - a
         deliberate demonstration that handlers get no ambient time).
+
     """
     return {
         "echoed": dict(payload),
@@ -69,7 +70,7 @@ async def echo_handler(payload: Mapping[str, Any], ctx: Any) -> Mapping[str, Any
 
 
 async def failing_handler(payload: Mapping[str, Any], ctx: Any) -> Mapping[str, Any]:
-    """Always raise, with a failure class chosen by the payload.
+    """Raise immediately, with a failure class chosen by the payload.
 
     Args:
         payload: May contain ``failure_kind``: ``transient``, ``permanent`` or ``unknown``.
@@ -83,13 +84,18 @@ async def failing_handler(payload: Mapping[str, Any], ctx: Any) -> Mapping[str, 
         DependencyUnavailableError: For ``transient``.
         ValidationError: For ``permanent``.
         InternalError: For ``unknown`` or any unrecognised value.
+
     """
     del ctx
     kind = str(payload.get("failure_kind", "unknown"))
     if kind == "transient":
-        raise DependencyUnavailableError("simulated transient dependency failure", dependency="simulated")
+        raise DependencyUnavailableError(
+            "simulated transient dependency failure", dependency="simulated"
+        )
     if kind == "permanent":
-        raise ValidationError("simulated permanent validation failure", detail={"field": "simulated"})
+        raise ValidationError(
+            "simulated permanent validation failure", detail={"field": "simulated"}
+        )
     raise InternalError("simulated unknown failure")
 
 
@@ -106,6 +112,7 @@ async def flaky_handler(payload: Mapping[str, Any], ctx: Any) -> Mapping[str, An
 
     Raises:
         DependencyUnavailableError: On the attempts before the threshold.
+
     """
     threshold = int(payload.get("fail_until_attempt", 1))
     if ctx.attempt < threshold:
@@ -121,6 +128,7 @@ def build_registry() -> dict[str, JobHandlerFn]:
 
     Returns:
         Mapping of job type to handler. Unknown types are a permanent failure at execution time.
+
     """
     return {
         ECHO_JOB_TYPE: echo_handler,

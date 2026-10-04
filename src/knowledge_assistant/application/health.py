@@ -33,8 +33,8 @@ from knowledge_assistant.domain.health import (
     ProbeResult,
     ProbeStatus,
     aggregate,
+    safe_probe_detail,
 )
-from knowledge_assistant.domain.health import safe_probe_detail
 
 __all__ = ["HealthService", "DEFAULT_PROBE_TIMEOUT_SECONDS"]
 
@@ -62,6 +62,7 @@ class HealthService:
             probes: Probes to run. Order is preserved in the report for stable output.
             clock: Injected time source.
             timeout_seconds: Upper bound on the whole probe set.
+
         """
         self._probes = tuple(probes)
         self._clock = clock
@@ -78,6 +79,7 @@ class HealthService:
         Returns:
             A ``HealthReport``. This method does not raise: an unhealthy system is a
             reportable state, not an exceptional one.
+
         """
         started = time.perf_counter()
         try:
@@ -111,6 +113,7 @@ class HealthService:
 
         Returns:
             The probe result. Never raises.
+
         """
         started = time.perf_counter()
         try:

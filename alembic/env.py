@@ -51,6 +51,7 @@ def _database_url() -> str:
     Raises:
         Exception: Propagated from settings validation, so a missing or invalid ``KA_DATABASE_URL``
             fails the migration rather than connecting to the wrong database.
+
     """
     settings = load_settings()
     return settings.database_url.get_secret_value()
@@ -84,10 +85,16 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-    with connectable.connect() as connection:
-        connection = connection.execution_options(isolation_level="AUTOCOMMIT")
+    with connectable.connect() as raw_connection:
+        # Bound to a separate name rather than rebinding `raw_connection`, so the object
+        # Alembic hands to the migration context is visibly not the pooled connection.
+        connection = raw_connection.execution_options(isolation_level="AUTOCOMMIT")
         _apply_session_policy(connection)
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+        )
         with context.begin_transaction():
             context.run_migrations()
 
@@ -97,6 +104,7 @@ def _apply_session_policy(connection: Connection) -> None:
 
     Args:
         connection: Migration connection.
+
     """
     connection.exec_driver_sql(f"SET statement_timeout = {_MIGRATION_STATEMENT_TIMEOUT_MS}")
     connection.exec_driver_sql("SET lock_timeout = '10s'")

@@ -36,11 +36,48 @@ SRC_ROOT: Final[Path] = REPO_ROOT / "src" / "knowledge_assistant"
 #: explicit entry in the relevant rule.
 _STDLIB: Final[frozenset[str]] = frozenset(
     {
-        "abc", "argparse", "ast", "asyncio", "base64", "collections", "contextlib", "contextvars",
-        "dataclasses", "datetime", "decimal", "enum", "functools", "hashlib", "http", "inspect",
-        "io", "itertools", "json", "logging", "math", "os", "pathlib", "random", "re", "secrets",
-        "signal", "socket", "ssl", "statistics", "string", "subprocess", "sys", "textwrap",
-        "threading", "time", "types", "typing", "unicodedata", "uuid", "warnings", "weakref",
+        "abc",
+        "argparse",
+        "ast",
+        "asyncio",
+        "base64",
+        "collections",
+        "contextlib",
+        "contextvars",
+        "dataclasses",
+        "datetime",
+        "decimal",
+        "enum",
+        "functools",
+        "hashlib",
+        "http",
+        "inspect",
+        "io",
+        "itertools",
+        "json",
+        "logging",
+        "math",
+        "os",
+        "pathlib",
+        "random",
+        "re",
+        "secrets",
+        "signal",
+        "socket",
+        "ssl",
+        "statistics",
+        "string",
+        "subprocess",
+        "sys",
+        "textwrap",
+        "threading",
+        "time",
+        "types",
+        "typing",
+        "unicodedata",
+        "uuid",
+        "warnings",
+        "weakref",
         "__future__",
     }
 )
@@ -56,6 +93,7 @@ class Rule:
         allowed_third_party: Exact top-level third-party module names it may import.
         rationale: Why the rule exists. Rendered in violation messages, because a rule nobody
             understands gets deleted by the next person who trips over it.
+
     """
 
     package: str
@@ -161,6 +199,7 @@ def _top_level(module: str) -> str:
 
     Returns:
         The first dotted component.
+
     """
     return module.split(".", 1)[0]
 
@@ -173,6 +212,7 @@ def _iter_imports(tree: ast.AST) -> list[tuple[int, str]]:
 
     Returns:
         List of ``(line_number, module_name)``.
+
     """
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
@@ -187,6 +227,12 @@ def _iter_imports(tree: ast.AST) -> list[tuple[int, str]]:
             if node.module:
                 found.append((node.lineno, node.module))
     return found
+
+
+#: A first-party path needs at least `<package>/<module>` before a layer can be identified.
+#: Anything shallower is a top-level module such as container.py or main.py, which are
+#: allowed to know every layer.
+_MINIMUM_PATH_DEPTH = 2
 
 
 def _relative_import_reason() -> str:
@@ -205,13 +251,14 @@ def check_file(path: Path) -> list[Violation]:
 
     Returns:
         Violations found. Empty when the file conforms.
+
     """
     try:
         relative = path.relative_to(SRC_ROOT)
     except ValueError:
         return []
     parts = relative.parts
-    if len(parts) < 2:
+    if len(parts) < _MINIMUM_PATH_DEPTH:
         return []  # top-level module (container.py, main.py): allowed to know everything
     package = parts[1] if parts[0] == "knowledge_assistant" else parts[0]
     rule = RULES.get(package)
@@ -274,6 +321,7 @@ def check_tree(root: Path | None = None) -> list[Violation]:
 
     Returns:
         All violations found.
+
     """
     target = root or SRC_ROOT
     violations: list[Violation] = []
@@ -287,6 +335,7 @@ def main() -> int:
 
     Returns:
         ``0`` when clean, ``1`` otherwise.
+
     """
     violations = check_tree()
     if not violations:

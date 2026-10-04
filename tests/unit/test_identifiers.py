@@ -35,10 +35,13 @@ class TestValidKey:
     def test_well_formed_key_is_accepted(self) -> None:
         assert validate_idempotency_key(VALID_KEY) == VALID_KEY
 
-    @pytest.mark.parametrize("boundary_length", [IDEMPOTENCY_KEY_MIN_LENGTH, IDEMPOTENCY_KEY_MAX_LENGTH])
+    @pytest.mark.parametrize(
+        "boundary_length", [IDEMPOTENCY_KEY_MIN_LENGTH, IDEMPOTENCY_KEY_MAX_LENGTH]
+    )
     def test_length_bounds_are_inclusive(self, boundary_length: int) -> None:
         """Both bounds are documented as inclusive. An off-by-one here would reject a key a
-        client is entitled to send, which surfaces as a confusing 400 rather than a clear one."""
+        client is entitled to send, which surfaces as a confusing 400 rather than a clear one.
+        """
         key = "a" * boundary_length
         assert is_valid_idempotency_key(key)
         assert validate_idempotency_key(key) == key
@@ -76,7 +79,8 @@ class TestInvalidKey:
 
     def test_raises_the_documented_exception_type(self) -> None:
         """The docstring promises ``ValidationError``. It is not a ``ValueError``; callers
-        must catch the taxonomy type, and this test keeps the two from being conflated."""
+        must catch the taxonomy type, and this test keeps the two from being conflated.
+        """
         with pytest.raises(ValidationError):
             validate_idempotency_key("bad")
 
@@ -88,7 +92,8 @@ class TestInvalidKey:
 
     def test_error_message_echoes_none_of_the_supplied_value(self) -> None:
         """The key travels into logs. Echoing a malformed value back would let a client inject
-        content - control characters, a fake log line - into the log stream."""
+        content - control characters, a fake log line - into the log stream.
+        """
         hostile = "a" * 20 + "\nFAKE-LOG-LINE injected" + "b" * 5
         with pytest.raises(ValidationError) as excinfo:
             validate_idempotency_key(hostile)
@@ -111,12 +116,14 @@ class TestValidationDoesNotMutate:
     )
     def test_key_is_returned_unchanged(self, key: str) -> None:
         """Case-folding or trimming would merge two distinct client intents, and a merged
-        idempotency namespace returns the wrong cached response."""
+        idempotency namespace returns the wrong cached response.
+        """
         assert validate_idempotency_key(key) == key
 
     def test_leading_and_trailing_whitespace_is_a_rejection_not_a_trim(self) -> None:
         """Trimming would make a malformed key valid and silently change which key was
-        meant. Rejecting is the only safe option."""
+        meant. Rejecting is the only safe option.
+        """
         assert not is_valid_idempotency_key(f"  {VALID_KEY}  ")
 
 
@@ -129,7 +136,8 @@ class TestRequestIdGeneration:
 
     def test_request_id_satisfies_the_idempotency_key_grammar(self) -> None:
         """Middleware uses this grammar to decide whether to trust a client-supplied id. The
-        generated id must pass the same check, or tracing works only for client-supplied ids."""
+        generated id must pass the same check, or tracing works only for client-supplied ids.
+        """
         assert is_valid_idempotency_key(new_request_id())
 
     def test_generated_ids_are_unique(self) -> None:
@@ -150,5 +158,6 @@ class TestNamespacedUuid:
 
     def test_is_version_5(self) -> None:
         """UUIDv5 is specified as deterministic. A change of version would silently change
-        every previously derived identifier in the database."""
+        every previously derived identifier in the database.
+        """
         assert namespaced_uuid("doc-42").version == 5

@@ -23,8 +23,9 @@ latency data exists.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final, Sequence
+from typing import Final
 
 from opentelemetry import metrics
 from opentelemetry.metrics import Counter, Histogram, Meter, UpDownCounter
@@ -117,7 +118,8 @@ METRIC_CATALOGUE: Final[tuple[InstrumentMeta, ...]] = (
         MetricNames.HTTP_LATENCY,
         "histogram",
         ("method", "route"),
-        "End-to-end request duration. Phase 0 targets are p95 < 250 ms (search) and < 8 s (generated).",
+        "End-to-end request duration. Phase 0 targets are p95 < 250 ms (search) "
+        "and < 8 s (generated).",
         "api team",
         "Ticket at sustained p95 over target; page only on SLO burn.",
     ),
@@ -141,7 +143,8 @@ METRIC_CATALOGUE: Final[tuple[InstrumentMeta, ...]] = (
         MetricNames.DB_CONNECTIONS,
         "updowncounter",
         ("state",),
-        "Connections in the pool by state: idle, in_use, or wait. Pool wait is a leading indicator.",
+        "Connections in the pool by state: idle, in_use, or wait. "
+        "Pool wait is a leading indicator.",
         "api team",
         "Sustained non-zero wait precedes connection exhaustion, which is an outage.",
     ),
@@ -221,7 +224,8 @@ METRIC_CATALOGUE: Final[tuple[InstrumentMeta, ...]] = (
         MetricNames.PROCESS_UPTIME,
         "gauge",
         (),
-        "Process uptime in seconds. Uptime resets on restart, which is the signature of a crash loop.",
+        "Process uptime in seconds. Uptime resets on restart, which is the "
+        "signature of a crash loop.",
         "api team",
         "Repeated resets indicate a crash loop; investigate before scaling out.",
     ),
@@ -235,10 +239,23 @@ class Metrics:
     so that tests can assert on instrument *names* without importing OTel.
     """
 
-    __slots__ = ("_meter", "_service", "http_requests", "http_errors", "http_latency", "http_inflight",
-                 "db_query_duration", "db_connections", "db_health",
-                 "worker_jobs_claimed", "worker_job_outcomes", "worker_job_duration",
-                 "worker_queue_depth", "worker_dead_letter_depth", "worker_oldest_pending_age")
+    __slots__ = (
+        "_meter",
+        "_service",
+        "http_requests",
+        "http_errors",
+        "http_latency",
+        "http_inflight",
+        "db_query_duration",
+        "db_connections",
+        "db_health",
+        "worker_jobs_claimed",
+        "worker_job_outcomes",
+        "worker_job_duration",
+        "worker_queue_depth",
+        "worker_dead_letter_depth",
+        "worker_oldest_pending_age",
+    )
 
     def __init__(self, meter: Meter, *, service: str) -> None:
         """Create the instrument set.
@@ -247,6 +264,7 @@ class Metrics:
             meter: OpenTelemetry meter to create instruments from.
             service: Value of the ``service`` label. Adding ``service`` to every instrument
                 rather than using one meter per service keeps the catalogue uniform.
+
         """
         self._meter = meter
         self._service = service
@@ -309,13 +327,16 @@ class Metrics:
 
 
 def build_meter(service: str) -> Meter:
-    """Return a meter for the named service.
+    """Return a meter scoped to the named service.
 
     Args:
-        service: Service name.
+        service: Service name. Used as the instrumentation-scope name so that instruments
+            from the API and the worker are distinguishable in an exporter even when both
+            processes write to the same backend.
 
     Returns:
         An OpenTelemetry meter.
+
     """
     provider = metrics.get_meter_provider()
-    return provider.get_meter("knowledge_assistant", "0.1.0")
+    return provider.get_meter(f"knowledge_assistant.{service}", "0.1.0")

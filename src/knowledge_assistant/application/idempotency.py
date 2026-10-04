@@ -20,6 +20,7 @@ response is idempotent in name only.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 from collections.abc import Awaitable, Callable, Mapping
@@ -54,6 +55,7 @@ def fingerprint(payload: Mapping[str, Any]) -> str:
 
     Returns:
         Hex SHA-256 of the canonical encoding.
+
     """
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -77,6 +79,7 @@ class IdempotentExecutor:
             store: Idempotency store.
             clock: Injected time source.
             retention_seconds: How long a completed outcome is replayable.
+
         """
         self._store = store
         self._clock = clock
@@ -109,6 +112,7 @@ class IdempotentExecutor:
                 fails to claim the key.
             InternalError: If a completed record has no stored payload, which indicates store
                 corruption rather than a client error.
+
         """
         request_fp = fingerprint(payload)
         now = self._clock.now()
@@ -128,7 +132,10 @@ class IdempotentExecutor:
                 return stored, True
             if decision is ReplayDecision.IN_FLIGHT:
                 msg = "a request with this idempotency key is already in flight"
-                raise ConflictError(msg, detail={"resource_type": "idempotency_key", "reason": "in_flight"})
+                raise ConflictError(
+                    msg,
+                    detail={"resource_type": "idempotency_key", "reason": "in_flight"},
+                )
             if decision is ReplayDecision.FINGERPRINT_MISMATCH:
                 msg = "idempotency key was already used with a different request body"
                 raise ConflictError(
@@ -162,11 +169,12 @@ class IdempotentExecutor:
             tenant_id: Owning tenant.
             scope: Operation family.
             key: Client key.
+
         """
-        try:
+        with contextlib.suppress(Exception):
+            # Best-effort cleanup. A release failure must not mask the operation's own
+            # error, which is the one the caller logs and the one worth seeing.
             await self._store.release(tenant_id=tenant_id, scope=scope, key=key)
-        except Exception:  # noqa: BLE001, S110 - best-effort cleanup; caller logs the primary error
-            pass
 
 
 def _decide(record: Any, *, request_fingerprint: str, now: Any) -> ReplayDecision:
@@ -179,6 +187,7 @@ def _decide(record: Any, *, request_fingerprint: str, now: Any) -> ReplayDecisio
 
     Returns:
         The replay decision.
+
     """
     from knowledge_assistant.domain.idempotency import decide_replay  # noqa: PLC0415
 
@@ -193,6 +202,7 @@ def assert_stored_payload_present(record: Any) -> None:
 
     Raises:
         InternalError: When the payload is missing, indicating store corruption.
+
     """
     if record.response_payload is None:
         msg = "completed idempotency record has no stored payload; store is corrupt"

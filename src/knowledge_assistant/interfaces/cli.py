@@ -42,6 +42,7 @@ def _run(args: list[str], *, cwd: Path | None = None, check: bool = True) -> int
 
     Returns:
         The process exit code.
+
     """
     completed = subprocess.run(args, cwd=cwd or REPO_ROOT, check=False)  # noqa: S603
     if check and completed.returncode != 0:
@@ -57,6 +58,7 @@ def _tool_available(name: str) -> bool:
 
     Returns:
         ``True`` if resolvable.
+
     """
     return shutil.which(name) is not None
 
@@ -70,6 +72,7 @@ def cmd_up() -> int:
 
     Returns:
         Exit code.
+
     """
     if not _tool_available("docker"):
         print(
@@ -143,6 +146,7 @@ def cmd_check() -> int:
     Returns:
         ``0`` only if every stage passes. Stages are run in cheapest-first order so a
         formatting error is reported in seconds rather than after the full test suite.
+
     """
     failures: list[str] = []
     for name, fn in (
@@ -171,6 +175,7 @@ def main() -> int:
 
     Returns:
         Process exit code.
+
     """
     parser = argparse.ArgumentParser(prog="ka", description="Knowledge Assistant developer CLI")
     sub = parser.add_subparsers(dest="command", required=True)

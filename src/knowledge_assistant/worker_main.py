@@ -31,6 +31,7 @@ async def run_worker(*, once: bool = False, max_iterations: int | None = None) -
 
     Returns:
         Process exit code: ``0`` clean, ``2`` configuration failure, ``3`` dependency failure.
+
     """
     try:
         settings = load_settings()
@@ -61,6 +62,7 @@ def main() -> int:
 
     Returns:
         Process exit code.
+
     """
     parser = argparse.ArgumentParser(prog="ka-worker", description="Knowledge Assistant worker")
     parser.add_argument(

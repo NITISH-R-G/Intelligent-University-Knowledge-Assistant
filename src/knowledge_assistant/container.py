@@ -23,6 +23,7 @@ from knowledge_assistant.application.jobs import ExecuteJobOnce, SubmitJob
 from knowledge_assistant.application.ports import HealthProbePort
 from knowledge_assistant.config.settings import Settings, load_settings
 from knowledge_assistant.domain.clock import Clock, SystemClock
+from knowledge_assistant.domain.health import ProbeCriticality, ProbeStatus
 from knowledge_assistant.infrastructure.db.engine import Database, build_pool
 from knowledge_assistant.infrastructure.db.idempotency import PgIdempotencyStore
 from knowledge_assistant.infrastructure.db.jobs import PgJobRepository
@@ -31,9 +32,8 @@ from knowledge_assistant.infrastructure.db.probes import (
     JobQueueProbe,
     StaticProbe,
 )
-from knowledge_assistant.lifespan import make_lifespan
-from knowledge_assistant.domain.health import ProbeCriticality, ProbeStatus
 from knowledge_assistant.interfaces.http.app import create_app
+from knowledge_assistant.lifespan import make_lifespan
 from knowledge_assistant.observability.logging import configure_logging, get_logger
 from knowledge_assistant.observability.metrics import Metrics, build_meter
 from knowledge_assistant.workers.handlers import build_registry
@@ -50,6 +50,7 @@ def _build_metrics(settings: Settings) -> Metrics:
 
     Returns:
         A metrics facade bound to the configured meter.
+
     """
     return Metrics(build_meter(settings.service_name), service=settings.service_name)
 
@@ -62,6 +63,7 @@ def _build_database(settings: Settings) -> Database:
 
     Returns:
         An unopened ``Database``.
+
     """
     pool = build_pool(
         settings.database_url.get_secret_value(),
@@ -94,6 +96,7 @@ def _build_probes(
     Returns:
         Ordered probes. Declared (not-yet-implemented) dependencies appear as advisory probes so
         their absence is visible rather than silent.
+
     """
     probes: list[HealthProbePort] = []
     if database is not None:
@@ -159,7 +162,11 @@ class WorkerContainer:
         await self.database.close()
 
 
-def build_api_container(settings: Settings | None = None, *, clock: Clock | None = None) -> ApiContainer:
+def build_api_container(
+    settings: Settings | None = None,
+    *,
+    clock: Clock | None = None,
+) -> ApiContainer:
     """Wire the API process.
 
     Args:
@@ -172,6 +179,7 @@ def build_api_container(settings: Settings | None = None, *, clock: Clock | None
     Raises:
         pydantic.ValidationError: Propagated from settings loading. A misconfigured service
             must not start.
+
     """
     resolved_settings = settings or load_settings()
     configure_logging(
@@ -239,6 +247,7 @@ def build_worker_container(
 
     Returns:
         A container whose ``runner`` is ready to run.
+
     """
     resolved_settings = settings or load_settings()
     configure_logging(

@@ -19,7 +19,7 @@ __all__ = ["Clock", "SystemClock", "FixedClock", "UTC"]
 #: All timestamps in this system are timezone-aware UTC. Naive datetimes are a bug source:
 #: a naive timestamp compared to an aware one raises, and a naive one stored in Postgres
 #: is interpreted in the server's local zone, which changes when the server moves.
-UTC = dt.timezone.utc
+UTC = dt.UTC
 
 
 @runtime_checkable
@@ -61,6 +61,7 @@ class FixedClock:
         Args:
             start: Initial instant. Defaults to 2026-01-01T00:00:00Z. A naive datetime is
                 rejected rather than silently assumed to be UTC.
+
         """
         if start is None:
             start = dt.datetime(2026, 1, 1, tzinfo=UTC)
@@ -84,6 +85,7 @@ class FixedClock:
 
         Raises:
             ValueError: If ``seconds`` is negative.
+
         """
         if seconds < 0:
             msg = "FixedClock cannot move backwards"

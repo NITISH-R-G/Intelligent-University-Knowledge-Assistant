@@ -55,6 +55,7 @@ def new_id() -> uuid.UUID:
     Returns:
         A fresh UUID. Not derived from time or state, so identifiers leak neither volume nor
         ordering.
+
     """
     return uuid.uuid4()
 
@@ -64,6 +65,7 @@ def new_request_id() -> str:
 
     Returns:
         36-character hyphenated UUID string, suitable for an HTTP header and a log field.
+
     """
     return str(uuid.uuid4())
 
@@ -76,6 +78,7 @@ def is_valid_idempotency_key(value: str) -> bool:
 
     Returns:
         ``True`` if the key satisfies the length bounds and character allow-list.
+
     """
     return IDEMPOTENCY_KEY_PATTERN.fullmatch(value) is not None
 
@@ -96,6 +99,7 @@ def validate_idempotency_key(value: str) -> str:
         ValidationError: If the key is not well-formed. The message names the field but
             echoes no part of the supplied value, so a malformed key cannot inject content
             into logs.
+
     """
     if not is_valid_idempotency_key(value):
         msg = (
@@ -117,5 +121,6 @@ def namespaced_uuid(name: str) -> uuid.UUID:
 
     Returns:
         Deterministic UUID for ``(namespace, name)``.
+
     """
     return uuid.uuid5(_UUID_NAMESPACE, name)

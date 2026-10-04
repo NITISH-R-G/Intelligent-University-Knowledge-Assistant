@@ -20,8 +20,8 @@ that costs a file and an indirection and buys nothing.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Any, Protocol, runtime_checkable
 
 from knowledge_assistant.domain.health import ProbeCriticality, ProbeResult
 from knowledge_assistant.domain.idempotency import IdempotencyRecord, IdempotencyScope
@@ -91,6 +91,7 @@ class JobRepositoryPort(Protocol):
 
         Returns:
             The created job, or the previously created job on a duplicate submission.
+
         """
         ...
 
@@ -104,6 +105,7 @@ class JobRepositoryPort(Protocol):
         Returns:
             A ``JobClaim`` granting exclusive ownership for the lease window, or ``None`` if
             nothing is runnable.
+
         """
         ...
 
@@ -113,6 +115,7 @@ class JobRepositoryPort(Protocol):
         Args:
             claim: The claim that executed the job.
             result: Handler result. Must be bounded in size; the caller truncates.
+
         """
         ...
 
@@ -129,6 +132,7 @@ class JobRepositoryPort(Protocol):
             claim: The claim that executed the job.
             error: Truncated failure summary.
             next_available_at: Earliest next claim time from the domain backoff policy.
+
         """
         ...
 
@@ -138,6 +142,7 @@ class JobRepositoryPort(Protocol):
         Args:
             claim: The claim that executed the job.
             error: Truncated failure summary.
+
         """
         ...
 
@@ -166,7 +171,9 @@ class JobRepositoryPort(Protocol):
 class IdempotencyStorePort(Protocol):
     """Persistence for idempotency records."""
 
-    async def get(self, *, tenant_id: str, scope: IdempotencyScope, key: str) -> IdempotencyRecord | None:
+    async def get(
+        self, *, tenant_id: str, scope: IdempotencyScope, key: str
+    ) -> IdempotencyRecord | None:
         """Return the record for a key, or ``None``."""
         ...
 
@@ -186,6 +193,7 @@ class IdempotencyStorePort(Protocol):
             ``None`` if the claim was obtained (caller should execute), or the existing record
             if another execution holds the key. This atomicity is the entire mechanism: two
             concurrent identical requests must not both execute.
+
         """
         ...
 
@@ -216,7 +224,14 @@ class JobContext:
 
     __slots__ = ("job_id", "job_type", "attempt", "tenant_id")
 
-    def __init__(self, *, job_id: str, job_type: str, attempt: int, tenant_id: str = "local") -> None:
+    def __init__(
+        self,
+        *,
+        job_id: str,
+        job_type: str,
+        attempt: int,
+        tenant_id: str = "local",
+    ) -> None:
         """Build a handler context.
 
         Args:
@@ -225,6 +240,7 @@ class JobContext:
             attempt: 1-based attempt number.
             tenant_id: Owning tenant. Phase 1 is single-tenant; the parameter exists so the
                 worker never has to learn tenancy later.
+
         """
         self.job_id = job_id
         self.job_type = job_type
@@ -250,6 +266,7 @@ def handler_contract() -> Sequence[str]:
 
     Returns:
         The contract, one line per rule.
+
     """
     return (
         "async def handler(payload: Mapping[str, Any], ctx: JobContext) -> Mapping[str, Any]",

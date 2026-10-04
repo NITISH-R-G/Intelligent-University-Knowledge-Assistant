@@ -38,7 +38,7 @@ class ConfigCategory(enum.StrEnum):
     NON_SENSITIVE = "non_sensitive"
 
     #: Grants access. Never logged, never serialised, never returned by any endpoint.
-    SECRET = "secret"
+    SECRET = "secret"  # noqa: S105 - this IS the word "secret"; a category name, not a credential
 
     #: Not a credential, but disclosure is reconnaissance. Never returned from any endpoint;
     #: suppressed in logs when the environment is production.
@@ -86,6 +86,7 @@ def mask_value(category: ConfigCategory, value: object) -> object:
 
     Returns:
         The original value if the category permits serialisation unmasked, otherwise ``MASK``.
+
     """
     if CATEGORY_RULES[category]["masked_in_dumps"]:
         return MASK
