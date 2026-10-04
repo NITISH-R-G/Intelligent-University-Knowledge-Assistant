@@ -189,6 +189,10 @@ check: ## Run every non-container gate: lint, types, architecture, tests
 openapi: ## Verify the committed OpenAPI document matches the application
 	$(PYTHON) scripts/openapi_artifact.py
 
+.PHONY: env-check
+env-check: ## Verify .env.example describes the stack docker-compose.yml builds
+	$(PYTHON) scripts/check_env_consistency.py
+
 .PHONY: openapi-write
 openapi-write: ## Rewrite the OpenAPI document (an intentional API contract change)
 	$(PYTHON) scripts/openapi_artifact.py --write

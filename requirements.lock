@@ -26,6 +26,10 @@
 # Interpreter:  CPython 3.14.3
 # Platform:    Windows, x86_64
 #
+# Verified against pyproject.toml: every declared dependency, including the `dev`
+# extra, resolves to a pinned version here that satisfies its declared range. That
+# consistency is checked, not assumed.
+#
 # Regenerating it is an intentional act, not a side effect:
 #
 #     python -m pip install -e ".[dev]"
@@ -60,10 +64,10 @@
 # such as certifi, idna and typing_extensions are required by something above them
 # and are listed because removing them would break the install.
 #
-# One naming note: `SQLAlchemy` is present because alembic requires it, and
-# alembic/env.py imports it directly. It is a transitive dependency today and not
-# declared as a direct one - worth correcting in pyproject.toml for honesty about
-# what the code imports. Noted rather than silently changed here.
+# One note on SQLAlchemy: alembic/env.py and the migration modules import it directly,
+# so it is a declared direct dependency in pyproject.toml and not merely something
+# alembic drags in. It was undeclared until the Phase 1 dependency audit found it;
+# see the commit that added it.
 # ==============================================================================
 
 alembic==1.20.0

@@ -179,6 +179,34 @@ class TestTemplateCarriesNoSecrets:
         assert not offenders, f"token-shaped values in .env.example: {offenders}"
 
 
+class TestTemplateMatchesTheComposeStack:
+    """The documented DSN must describe the database docker-compose.yml actually builds.
+
+    `.env.example` is documentation and `docker-compose.yml` is configuration. Nothing
+    cross-checks them, both are easy to edit independently, and a mismatch surfaces
+    only as a failed connection on a developer's first `make migrate` - with an error
+    that says nothing about which of the two files is wrong.
+
+    This cannot be proven without a running database, so it is not claimed to be. What
+    it *can* prove statically is that the two agree on user, password, database, port
+    and reachability, which removes the most common way the stack fails to come up.
+    """
+
+    def test_env_and_compose_agree(self) -> None:
+        """Run the same checker `make env-check` runs, and require it to pass."""
+        import importlib.util  # noqa: PLC0415
+        import sys  # noqa: PLC0415
+
+        spec = importlib.util.spec_from_file_location(
+            "check_env_consistency_under_test", "scripts/check_env_consistency.py"
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        assert module.main() == 0, ".env.example and docker-compose.yml disagree"
+
+
 class TestSecretFilesAreTrackedCorrectly:
     """`.env` is ignored; `.env.example` must not be."""
 

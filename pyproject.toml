@@ -25,6 +25,12 @@ dependencies = [
   "pydantic-settings>=2.5,<3.0",
   # --- data access ---
   "alembic>=1.13,<2.0",
+  # SQLAlchemy is imported directly by alembic/env.py and the migration modules, so it
+  # is a direct dependency and not merely something alembic happens to pull in. It was
+  # undeclared until the dependency audit in Phase 1; relying on a transitive edge means
+  # an alembic upgrade that drops or reshapes its SQLAlchemy constraint breaks the
+  # migration path with no declared change on our side.
+  "sqlalchemy>=2.0,<3.0",
   "psycopg[binary,pool]>=3.2,<4.0",
   # --- observability ---
   "structlog>=24.4",
