@@ -173,14 +173,23 @@ class TestIdempotencyKeyProperties:
     @settings(max_examples=300, deadline=None)
     def test_validator_agrees_with_predicate(self, value: str) -> None:
         """Two functions answering the same question must not disagree, or which one the
-        request path uses becomes security-relevant by accident."""
+        request path uses becomes security-relevant by accident.
+
+        The invariant is bidirectional: the validator accepts *exactly* the set the predicate
+        admits. It also pins the documented exception type. ``ValidationError`` derives from
+        ``ApplicationError`` (which carries the error taxonomy and policy), **not** from
+        ``ValueError``, so a handler that catches ``ValueError`` will not catch a malformed
+        key - which is exactly the kind of disagreement this test exists to prevent.
+        """
         assume("\x00" not in value)
         try:
             validated = validate_idempotency_key(value)
-        except ValueError:
+        except ValidationError:
             assert not is_valid_idempotency_key(value)
         else:
-            assert is_valid_idempotency_key(validated) or len(value) < 16
+            assert is_valid_idempotency_key(value)
+            # Normalisation is deliberately the identity function; see the docstring.
+            assert validated == value
 
     @given(st.text(min_size=16, max_size=255, alphabet=KEY_ALPHABET))
     @settings(max_examples=100, deadline=None)
