@@ -25,10 +25,12 @@ makes it impossible to print the settings object and leak the database credentia
 from __future__ import annotations
 
 import enum
+import json
 from typing import Annotated, Any, Final, Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from knowledge_assistant.config.categories import ConfigCategory, mask_value
 
@@ -45,6 +47,101 @@ _ENV_PREFIX: Final[str] = "KA_"
 #: Hosts that mean "this machine only". Used by the production-safety validator, which must
 #: refuse a configuration that binds either the service or its metrics to loopback.
 _LOOPBACK_HOSTS: Final[frozenset[str]] = frozenset({"127.0.0.1", "localhost"})
+
+#: The CORS wildcard. Accepted as a valid value here because it is a real cross-origin
+#: policy, but it is refused by the production-safety validator below - allowing it
+#: locally while banning it in production is a deliberate position, not an oversight.
+_CORS_WILDCARD: Final[str] = "*"
+
+#: Schemes a CORS origin may use. Anything else is not a web origin: `CORS_ORIGIN_*`
+#: preflight headers are defined for http(s), and a `file://` or `chrome-extension://`
+#: entry is always a configuration mistake rather than an exotic-but-valid origin.
+_ALLOWED_ORIGIN_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
+
+
+def _check_origin(origin: str) -> str:
+    """Validate a single CORS origin, returning it unchanged when acceptable.
+
+    Rejecting a malformed origin is the point. Silently keeping ``example.com`` or
+    ``http://a.example/path`` in a security-sensitive list would leave an operator
+    believing cross-origin access is restricted to hosts it is not restricted to.
+
+    Args:
+        origin: Candidate origin, already whitespace-trimmed.
+
+    Returns:
+        The origin, unchanged.
+
+    Raises:
+        ValueError: If the value is not a usable origin.
+
+    """
+    if origin == _CORS_WILDCARD:
+        return origin
+    if any(character.isspace() for character in origin):
+        raise ValueError(f"cors_allowed_origins entry must not contain whitespace: {origin!r}")
+    parsed = urlsplit(origin)
+    if parsed.scheme not in _ALLOWED_ORIGIN_SCHEMES:
+        raise ValueError(f"cors_allowed_origins entry must use http or https, got {origin!r}")
+    if not parsed.netloc:
+        raise ValueError(f"cors_allowed_origins entry must include a host, got {origin!r}")
+    if parsed.path or parsed.query or parsed.fragment:
+        # A browser sends `Origin: scheme://host[:port]` and nothing more. A path here
+        # is a near-certain mistake, and silently keeping it would mean the entry
+        # matches nothing while looking configured.
+        raise ValueError(
+            f"cors_allowed_origins entry must be scheme://host[:port] with no path, got {origin!r}"
+        )
+    return origin
+
+
+def _parse_origins(raw: str) -> tuple[str, ...]:
+    """Parse the environment representation of ``cors_allowed_origins``.
+
+    Three forms are accepted, because operators set this variable in genuinely
+    different places and rejecting a reasonable spelling only teaches them to work
+    around the application:
+
+    * empty or whitespace - no cross-origin access. Well-defined, not an error.
+    * comma-separated - ``https://a.example,https://b.example``. This is what a
+      Docker/Kubernetes env var and a shell export naturally produce.
+    * a JSON array - ``["https://a.example"]``. Kept working because it is the form
+      pydantic-settings requires for every other complex field, so anyone who set
+      it that way is not doing anything unusual.
+
+    Args:
+        raw: Raw environment value.
+
+    Returns:
+        Validated origins in declaration order.
+
+    Raises:
+        ValueError: If the value is neither form, or contains an unusable origin.
+
+    """
+    text = raw.strip()
+    if not text:
+        return ()
+    if text.startswith("["):
+        # JSON form. Decoded here rather than by the settings source, because
+        # `NoDecode` on this field is what routes the raw string to this function.
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"cors_allowed_origins is not valid JSON: {exc.msg}") from exc
+        if not isinstance(decoded, list):
+            raise ValueError("cors_allowed_origins JSON form must be an array of strings")
+        origins: list[str] = []
+        for entry in decoded:
+            if not isinstance(entry, str):
+                raise ValueError(
+                    "cors_allowed_origins JSON array must contain only strings, "
+                    f"got {type(entry).__name__}"
+                )
+            if entry.strip():
+                origins.append(_check_origin(entry.strip()))
+        return tuple(origins)
+    return tuple(_check_origin(part.strip()) for part in text.split(",") if part.strip())
 
 
 class Environment(enum.StrEnum):
@@ -140,22 +237,37 @@ class Settings(BaseSettings):
     #: unauthenticated *business* endpoints before Phase 2 implements auth. See
     #: docs/08-security/AUTHN_BOUNDARY.md.
     require_authentication: Annotated[bool, Field()] = True
-    cors_allowed_origins: Annotated[tuple[str, ...], Field()] = ()
+    # `NoDecode` is load-bearing, not decorative. pydantic-settings JSON-decodes every
+    # complex-typed field out of the environment *before* any validator runs, so
+    # without it `KA_CORS_ALLOWED_ORIGINS=https://a.example` dies in the settings
+    # source and the validator below never executes - which is exactly what happened:
+    # the documented comma-separated contract was unreachable from the environment
+    # while a kwarg-based test kept passing. `NoDecode` hands the raw string to
+    # `_parse_origins`, which decides the representation deliberately instead.
+    cors_allowed_origins: Annotated[tuple[str, ...], NoDecode, Field()] = ()
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: Any) -> Any:
-        """Accept a comma-separated string so the variable is convenient in a container env.
+        """Normalise the origins supplied through any source.
 
         Args:
-            value: Raw value from the environment.
+            value: Raw value: a string from the environment, or an already-structured
+                collection when constructed directly.
 
         Returns:
-            A list of origins, or the value unchanged.
+            A validated tuple of origins, or the value unchanged when it is of a type
+            this validator does not own.
+
+        Raises:
+            ValueError: Propagated from `_parse_origins` / `_check_origin` for an
+                unusable origin.
 
         """
         if isinstance(value, str):
-            return tuple(part.strip() for part in value.split(",") if part.strip())
+            return _parse_origins(value)
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return tuple(_check_origin(str(entry).strip()) for entry in value)
         return value
 
     @field_validator("db_pool_max_size")

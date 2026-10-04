@@ -255,3 +255,138 @@ class TestLoading:
         monkeypatch.setenv("KA_PORT", "not-a-number")
         with pytest.raises(ValidationError):
             load_settings()
+
+
+class TestCorsOriginsFromEnvironment:
+    """The `KA_CORS_ALLOWED_ORIGINS` contract, exercised through the real environment.
+
+    These tests exist because the equivalent kwarg-based test passed while the
+    documented contract was unreachable. pydantic-settings JSON-decodes complex-typed
+    fields out of the environment *before* any validator runs, so `Settings(
+    cors_allowed_origins="a,b")` validated happily while `KA_CORS_ALLOWED_ORIGINS=a,b`
+    raised `SettingsError` in the settings source and the validator never executed.
+
+    Every test here goes through `load_settings()` rather than the constructor for that
+    reason. A test of the constructor cannot see this class of bug.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _database_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`database_url` is the one setting with no default; supply it for every case."""
+        monkeypatch.setenv("KA_DATABASE_URL", DSN)
+
+    def _origins(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> tuple[str, ...]:
+        """Load settings with the variable set to `raw` and return the parsed origins.
+
+        Args:
+            monkeypatch: Pytest environment patcher.
+            raw: Raw environment value.
+
+        Returns:
+            The validated origin tuple.
+
+        """
+        monkeypatch.setenv("KA_CORS_ALLOWED_ORIGINS", raw)
+        return load_settings().cors_allowed_origins
+
+    @pytest.mark.parametrize("raw", ["", "   ", "\t\n"])
+    def test_empty_value_means_no_cross_origin_access(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str
+    ) -> None:
+        """Empty must be well-defined, not an error.
+
+        Unset and empty are the same intent, and `KA_CORS_ALLOWED_ORIGINS=` is the
+        spelling people actually write. Failing here would push an operator to invent a
+        dummy origin rather than to mean "none".
+        """
+        assert self._origins(monkeypatch, raw) == ()
+
+    def test_single_origin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One origin, no comma: the common case for a single-origin deployment."""
+        assert self._origins(monkeypatch, "https://a.example") == ("https://a.example",)
+
+    def test_comma_separated_origins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The documented contract: what a Docker env var or shell export naturally yields."""
+        assert self._origins(monkeypatch, "https://a.example,https://b.example") == (
+            "https://a.example",
+            "https://b.example",
+        )
+
+    def test_whitespace_is_stripped_and_blank_entries_dropped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Whitespace is cosmetic, not semantic.
+
+        Tolerating it stops a trailing comma in a YAML list or a space after each comma
+        from being a startup failure. Embedded whitespace inside an entry is still
+        rejected - see `test_malformed_input_is_rejected`.
+        """
+        assert self._origins(monkeypatch, "  https://a.example , https://b.example  ,  ") == (
+            "https://a.example",
+            "https://b.example",
+        )
+
+    def test_json_array_still_supported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The JSON form keeps working; it is what pydantic-settings requires elsewhere.
+
+        Removing it would break anyone who set the variable this way and succeeded,
+        which is not a change this fix is entitled to make.
+        """
+        assert self._origins(monkeypatch, '["https://a.example", "https://b.example"]') == (
+            "https://a.example",
+            "https://b.example",
+        )
+
+    def test_json_empty_array_means_no_cross_origin_access(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`[]` and empty string must agree, or the same intent has two meanings."""
+        assert self._origins(monkeypatch, "[]") == ()
+
+    def test_origin_with_port_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A dev frontend runs on a non-default port; rejecting it would be a false negative."""
+        assert self._origins(monkeypatch, "http://localhost:3000") == ("http://localhost:3000",)
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "a.example",  # bare hostname: not an origin
+            "//a.example",  # missing scheme
+            "file://a.example",  # not an http(s) scheme
+            "https://a.example/",  # trailing slash - the browser never sends one
+            "https://a.example/admin",  # a path is not part of an Origin header
+            "https://a.example?q=1",
+            "http://a.exa mple",  # embedded whitespace
+            "[unclosed",  # malformed JSON
+            '"https://a.example"',  # JSON string, not array
+            "[1, 2]",  # JSON array of non-strings
+        ],
+    )
+    def test_malformed_input_is_rejected(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+        """Invalid origins must fail loudly rather than becoming a permissive list.
+
+        `cors_allowed_origins` is SECURITY_SENSITIVE: silently keeping `a.example` would
+        leave an operator believing cross-origin access is restricted to a host it is not
+        restricted to. Failing at startup is the recoverable outcome.
+        """
+        monkeypatch.setenv("KA_CORS_ALLOWED_ORIGINS", raw)
+        with pytest.raises(ValidationError):
+            load_settings()
+
+    def test_wildcard_is_accepted_here_but_refused_in_production(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`*` is a real CORS value, so field validation must not claim otherwise.
+
+        It stays valid here and invalid in production, which is the existing policy: the
+        field-level rule accepts the value, the production-safety rule refuses it. If this
+        test ever fails because `*` was rejected at field level, the production guard has
+        become unreachable and would silently stop protecting anything.
+        """
+        assert self._origins(monkeypatch, "*") == ("*",)
+        monkeypatch.setenv("KA_ENVIRONMENT", "production")
+        monkeypatch.setenv("KA_HOST", "0.0.0.0")
+        monkeypatch.setenv("KA_METRICS_HOST", "0.0.0.0")
+        monkeypatch.setenv("KA_REQUIRE_AUTHENTICATION", "true")
+        with pytest.raises(ValidationError, match="cors_allowed_origins"):
+            load_settings()

@@ -91,12 +91,13 @@ class TestTemplateIsActuallyLoadable:
     The tests above check the template against the *field names*. They cannot
     check the *values*, and the values are where this file has actually broken.
 
-    ``cors_allowed_origins`` is typed ``tuple[str, ...]``, so pydantic-settings
-    parses it out of the environment as JSON before any field validator runs. An
-    empty ``KA_CORS_ALLOWED_ORIGINS=`` therefore raises ``SettingsError`` at
-    startup - the intuitive spelling is the one that crashes. Nothing about that
-    is catchable by name comparison, and nothing about it surfaces until somebody
-    copies the template and starts the service.
+    ``cors_allowed_origins`` is the worked example. It is typed
+    ``tuple[str, ...]``, and pydantic-settings JSON-decodes complex-typed fields
+    out of the environment *before* any validator runs - so for a while the
+    template had to spell an empty list as ``[]`` because the intuitive
+    ``KA_CORS_ALLOWED_ORIGINS=`` raised ``SettingsError`` at startup. A
+    name-comparison test cannot see that, and neither can a test that constructs
+    ``Settings(...)`` directly: only the environment path exposes it.
 
     Loading the whole template through ``load_settings`` closes that class of bug
     permanently, and it costs one test.
@@ -112,17 +113,17 @@ class TestTemplateIsActuallyLoadable:
         assert settings.database_url.get_secret_value().startswith("postgresql://")
         assert settings.environment.value == "local"
 
-    def test_cors_origins_must_be_a_json_array(self) -> None:
-        """Pin the one variable whose intuitive empty spelling crashes startup.
+    def test_cors_origins_uses_the_documented_empty_spelling(self) -> None:
+        """The template must express "no origins" the way the contract defines it.
 
-        A developer "tidying" this file back to ``KA_CORS_ALLOWED_ORIGINS=`` is
-        making it look simpler while breaking the service. The assertion states
-        the reason in the failure message so it does not get reverted.
+        Empty is the documented representation, and it is also the one that reads
+        most clearly to someone reading the file. If a future change makes empty
+        mean something else, this fails here rather than in a developer's first
+        run - and the message says which spelling is correct.
         """
-        assert _declared_assignments()["KA_CORS_ALLOWED_ORIGINS"] == "[]", (
-            "KA_CORS_ALLOWED_ORIGINS is a tuple[str, ...] field: pydantic-settings "
-            "JSON-decodes it before validators run, so the empty string raises "
-            "SettingsError. The empty value must be written `[]`."
+        assert _declared_assignments()["KA_CORS_ALLOWED_ORIGINS"] == "", (
+            "an empty KA_CORS_ALLOWED_ORIGINS is the documented way to express "
+            "'no cross-origin access'; do not replace it with a JSON form"
         )
 
 
