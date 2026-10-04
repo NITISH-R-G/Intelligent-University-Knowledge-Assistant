@@ -13,7 +13,7 @@ reader most needs to see. The cost is a slightly longer constructor; the benefit
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI
 
@@ -217,7 +217,7 @@ def build_api_container(
         max_body_bytes=resolved_settings.max_request_body_bytes,
         metrics=metrics,
     )
-    app.router.lifespan_context = make_lifespan(database)
+    app.router.lifespan_context = cast("Any", make_lifespan(database))
     logger.info(
         "container.api.built",
         environment=resolved_settings.environment.value,

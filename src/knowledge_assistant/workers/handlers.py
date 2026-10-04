@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from knowledge_assistant.application.jobs import JobHandlerFn
+from knowledge_assistant.application.ports import JobHandlerFn
 from knowledge_assistant.domain.errors import (
     DependencyUnavailableError,
     InternalError,

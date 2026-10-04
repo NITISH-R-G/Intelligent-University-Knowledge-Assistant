@@ -25,7 +25,6 @@ import datetime as dt
 from collections.abc import Mapping
 from typing import Any
 
-from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
 from knowledge_assistant.domain.identifiers import new_id
@@ -330,8 +329,3 @@ def _worker_identity() -> str:
     import os  # noqa: PLC0415
 
     return f"pid:{os.getpid()}"
-
-
-def connection_is_dict_row(conn: AsyncConnection[Any]) -> bool:  # pragma: no cover - sanity helper
-    """Return whether the connection is configured for dict rows."""
-    return conn.info.row_factory is dict_row

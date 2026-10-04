@@ -158,7 +158,7 @@ def _make_configure(statement_timeout_ms: int) -> Any:
     return _configure
 
 
-async def _health_check(conn: AsyncConnection[Any]) -> bool:
+async def _health_check(conn: AsyncConnection[Any]) -> None:
     """Validate a pooled connection before reuse.
 
     A connection returned to the pool may have been closed by the server, the firewall, or a
@@ -168,17 +168,15 @@ async def _health_check(conn: AsyncConnection[Any]) -> bool:
     Args:
         conn: Connection taken from the pool.
 
-    Returns:
-        ``True`` if the connection is usable.
+    Raises:
+        Exception: Any failure from the probe. psycopg's pool treats a raised exception as
+            "this connection is not reusable" and discards it; returning a boolean would be
+            read as success, so a dead connection would be handed to application code.
 
     """
-    try:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT 1")
-            await cur.fetchone()
-    except Exception:  # noqa: BLE001 - any failure means "do not reuse this connection"
-        return False
-    return True
+    async with conn.cursor() as cur:
+        await cur.execute("SELECT 1")
+        await cur.fetchone()
 
 
 class Database:

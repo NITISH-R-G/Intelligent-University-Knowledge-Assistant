@@ -309,4 +309,4 @@ def load_settings(**overrides: Any) -> Settings:
             The message names the field and never echoes a secret value.
 
     """
-    return Settings(**overrides)  # type: ignore[call-arg]
+    return Settings(**overrides)

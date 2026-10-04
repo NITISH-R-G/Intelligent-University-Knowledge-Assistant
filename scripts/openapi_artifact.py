@@ -76,7 +76,7 @@ def build_document() -> dict[str, Any]:
                 detail="ok",
             )
 
-    settings = Settings(**_GENERATION_SETTINGS)  # type: ignore[arg-type]
+    settings = Settings(**_GENERATION_SETTINGS)
     clock = FixedClock(dt.datetime(2026, 1, 1, tzinfo=UTC))
     app = create_app(
         health=HealthService([_StaticProbe()], clock=clock),

@@ -61,6 +61,8 @@ where = ["src"]
 line-length = 100
 # Must match `requires-python`. See the note there.
 target-version = "py312"
+# `benchmarks` is listed ahead of the benchmark framework landing. Ruff tolerates a missing
+# search path; mypy (below) does not, so it is omitted from `[tool.mypy] files` until then.
 src = ["src", "tests", "scripts", "benchmarks"]
 
 [tool.ruff.lint]
@@ -144,7 +146,21 @@ docstring-code-format = true
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.12"   # must match `requires-python`; see pyproject `[project]`
-files = ["src", "scripts", "benchmarks"]
+# The project uses a src/ layout, so the package root is `src`, not the repository root.
+# Without this, every `knowledge_assistant.*` import is unresolvable and mypy reports
+# import-not-found for the entire codebase.
+mypy_path = "src"
+# Required alongside `mypy_path` for a src/ layout: it makes mypy derive module names from
+# the search path rather than by walking up for `__init__.py`. Without it the same file
+# resolves as both `application.ports` and `knowledge_assistant.application.ports`, and
+# mypy aborts before type-checking anything.
+explicit_package_bases = true
+# NOTE: `benchmarks` is deliberately absent. It is a forward reference to the Phase 1
+# "benchmark foundation" deliverable, which does not exist yet; mypy treats an unresolvable
+# path as a hard error rather than skipping it, so listing it made the type-checker gate
+# unrunnable. Re-add it in the same commit that creates `benchmarks/`, otherwise benchmark
+# code will ship unchecked by mypy.
+files = ["src", "scripts"]
 strict = true
 warn_unreachable = true
 show_error_codes = true
