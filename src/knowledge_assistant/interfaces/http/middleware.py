@@ -38,10 +38,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from knowledge_assistant.domain.errors import ErrorKind
 from knowledge_assistant.domain.identifiers import is_valid_idempotency_key, new_request_id
+from knowledge_assistant.interfaces.http.errors import problem_document
 from knowledge_assistant.observability.logging import bind_request, clear_request_context
 from knowledge_assistant.observability.metrics import Metrics
-
-from .errors import problem_document
 
 __all__ = [
     "REQUEST_ID_HEADER",
