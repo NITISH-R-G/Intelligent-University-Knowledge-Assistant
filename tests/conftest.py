@@ -17,7 +17,9 @@ on any machine, with no Docker. The real-database tests exist separately and are
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
+import sys
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
@@ -47,6 +49,24 @@ from knowledge_assistant.interfaces.http.app import create_app
 #: value rather than "now", so that an assertion which accidentally depends on wall-clock time
 #: fails loudly instead of passing intermittently.
 TEST_EPOCH = dt.datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001 - pytest hook signature
+    """Install a Windows event-loop policy that async database drivers can use.
+
+    psycopg's async implementation is built on ``select`` and cannot run on Windows' default
+    ``ProactorEventLoop``; every connection attempt fails with an ``InterfaceError`` before a
+    packet is sent. Selecting the loop here, rather than per test, is what lets the live
+    PostgreSQL lane run on Windows at all.
+
+    This is test infrastructure only - production already documents the requirement, and
+    ``worker_main``/``main`` are expected to run under a compatible loop. Guarded so POSIX
+    behaviour is untouched.
+    """
+    if sys.platform == "win32" and not isinstance(
+        asyncio.get_event_loop_policy(), asyncio.WindowsSelectorEventLoopPolicy
+    ):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 @pytest.fixture
