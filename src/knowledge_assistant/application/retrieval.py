@@ -321,7 +321,10 @@ class BuildPrompt:
         parts = [self._system, "", "CONTEXT:"]
         if blocks:
             for block in blocks:
-                parts.append(f"[{block.rank}] {block.citation_label}\n{block.text.strip()}")
+                parts.append(
+                    f"[{block.rank}] {block.citation_label} (source: {block.chunk.chunk.source})\n"
+                    f"{block.text.strip()}"
+                )
         else:
             parts.append("(no relevant context was retrieved)")
         parts.extend(["", f"QUESTION: {question.strip()}", "", "ANSWER:"])
