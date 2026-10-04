@@ -1,0 +1,148 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knowledge-assistant"
+version = "0.1.0"
+description = "Intelligent University Knowledge Assistant - Phase 1 engineering foundation"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }  # OQ-001 / DECISION_LOCK D-001: licence decision pending
+
+# Dependencies are grouped by ROLE, not by convenience. The lockfile (requirements.lock)
+# pins exact versions for reproducible builds; this table states allowed ranges.
+dependencies = [
+  # --- interface layer ---
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  # --- configuration / validation ---
+  "pydantic>=2.9,<3.0",
+  "pydantic-settings>=2.5,<3.0",
+  # --- data access ---
+  "alembic>=1.13,<2.0",
+  "psycopg[binary,pool]>=3.2,<4.0",
+  # --- observability ---
+  "structlog>=24.4",
+  "opentelemetry-sdk>=1.27",
+  "opentelemetry-exporter-prometheus>=0.46b0",
+]
+
+[project.optional-dependencies]
+# NOTE: k6 is NOT a Python package. It is executed as a binary in CI/dev images.
+# See docs/12-performance/BENCHMARK_PROTOCOL.md. Deliberately not a dependency here.
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "httpx>=0.27",
+  "hypothesis>=6.100",
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
+
+[project.scripts]
+ka = "knowledge_assistant.interfaces.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---------------------------------------------------------------------------
+# ruff - formatting + lint. Chosen as the single lint/format tool (replaces
+# flake8+black+isort). Config rationale: docs/03-architecture/DEPENDENCY_RULES.md
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "scripts", "benchmarks"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",      # pycodestyle
+  "F",           # pyflakes
+  "I",           # isort
+  "N",           # pep8-naming
+  "UP",          # pyupgrade
+  "B",           # bugbear
+  "A",           # shadowing builtins
+  "C4",          # comprehensions
+  "DTZ",         # naive datetimes - we require tz-aware everywhere
+  "T20",         # no print()
+  "ARG",         # unused arguments
+  "PTH",         # pathlib
+  "RET",         # return consistency
+  "SIM",         # simplify
+  "TID",         # tidy imports (used for architecture rules)
+  "PL",          # pylint subset
+  "S",           # bandit security
+  "ANN",         # type annotations
+  "D",           # pydocstyle
+]
+ignore = [
+  "D203",   # incompatible with D211
+  "D213",   # incompatible with D212
+  "ANN401", # allow Any in explicitly-typed boundary adapters (documented)
+  "S101",   # assert is allowed in tests; ruff applies S101 off for tests below
+  "PLR0913",# too many arguments - use cases legitimately take several collaborators
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "ANN201", "D100", "D103", "PLR2004"]
+"benchmarks/**" = ["S101", "T201"]
+"scripts/**" = ["S603", "S607", "T201", "ANN"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"   # no `from ..x import y` anywhere
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# ---------------------------------------------------------------------------
+# mypy - static typing is a CI gate. Strict on domain + application (where the
+# logic lives); relaxed only at infrastructure edges where third-party stubs
+# are unavailable.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+files = ["src", "scripts", "benchmarks"]
+strict = true
+warn_unreachable = true
+show_error_codes = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_return_any = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["structlog.*", "opentelemetry.*", "uvicorn.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--import-mode=importlib",
+]
+markers = [
+  "unit: pure domain/application logic, no I/O",
+  "contract: interface contract assertions (API shape, error mapping)",
+  "integration: requires a live PostgreSQL; skipped when TEST_DATABASE_URL is unset",
+  "architecture: static dependency-rule enforcement over the source tree",
+  "failure_injection: deliberately induces a failure and asserts the documented behaviour",
+  "property: hypothesis property-based tests",
+  "slow: excluded from the fast lane",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["error"]   # any warning becomes a failure; see docs/11-testing/TEST_STRATEGY.md

@@ -1,0 +1,171 @@
+{
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "description": "Liveness response body.",
+        "properties": {
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "description": "Always 'ok' if the process can answer at all.",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "version"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "ProbeView": {
+        "description": "One probe's result, as exposed on readiness.",
+        "properties": {
+          "criticality": {
+            "title": "Criticality",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "criticality"
+        ],
+        "title": "ProbeView",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "description": "Readiness response body.\n\nDeliberately excludes anything that would help an attacker fingerprint the deployment:\nno version, no hostname, no dependency names beyond the probe's own name, which is already\nconstrained by the health schema.",
+        "properties": {
+          "degraded": {
+            "description": "True when an advisory dependency is unhealthy.",
+            "title": "Degraded",
+            "type": "boolean"
+          },
+          "probes": {
+            "items": {
+              "$ref": "#/components/schemas/ProbeView"
+            },
+            "title": "Probes",
+            "type": "array"
+          },
+          "ready": {
+            "description": "Whether the instance should receive traffic.",
+            "title": "Ready",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ready",
+          "degraded"
+        ],
+        "title": "ReadinessResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "This build exposes only foundation endpoints. Business functionality is deliberately absent: see docs/03-architecture/REPOSITORY.md.",
+    "summary": "Phase 1 engineering foundation. No business endpoints are implemented yet.",
+    "title": "Intelligent University Knowledge Assistant",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/healthz": {
+      "get": {
+        "description": "Reports only that the process is running. Performs no dependency I/O by design, so a dependency outage cannot cause an orchestrator to restart every instance.",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "description": "Runs dependency probes and reports whether this instance should receive traffic. Returns 503 when a critical probe fails, which is the signal a load balancer needs.",
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readiness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/version": {
+      "get": {
+        "description": "Reports service name, version and environment. No secrets, no hostnames.",
+        "operationId": "version_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Version Version Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Build identity",
+        "tags": [
+          "meta"
+        ]
+      }
+    }
+  }
+}
